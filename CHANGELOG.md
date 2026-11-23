@@ -2,7 +2,7 @@
 
 All notable project changes are documented here.
 
-## 1.0.0-rc.1 — 2026-11-23 (Release Candidate)
+## 1.0.0 — 2026-11-23
 
 ### Added
 
