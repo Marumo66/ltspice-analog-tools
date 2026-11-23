@@ -206,7 +206,13 @@ class TestUnifiedACDCSweep(unittest.TestCase):
         self.assertAlmostEqual(float(row["ugbw_Hz"]), 1000.0)
         self.assertAlmostEqual(float(row["phase_margin_deg"]), 60.0)
         self.assertAlmostEqual(float(row["V(out)_V"]), 0.25)
-        self.assertAlmostEqual(float(row["selected_supplies_power_delivered_uW"]), 15.0)
+        # The OP RAW fixture stores current values as 32-bit floats.
+        # Allow for the small quantisation error when calculating power.
+        self.assertAlmostEqual(
+            float(row["selected_supplies_power_delivered_uW"]),
+            15.0,
+            delta=1e-5,
+        )
         self.assertAlmostEqual(float(row["M1_Gm"]), 30e-6)
         self.assertEqual(row["op_convergence_method"], "direct_newton")
 
