@@ -47,7 +47,7 @@ Run the complete test suite from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-The project regression suite currently contains 57 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour and DC sweep orchestration. Run the full suite with the command above.
+The project regression suite currently contains 66 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and DC/AC sweep orchestration. Run the full suite with the command above.
 
 ## Transient example
 
@@ -204,3 +204,28 @@ This first sweep is DC-only. It does not calculate UGBW or phase margin, and
 the reported supply power includes only the voltage sources explicitly
 specified with `--supply`. AC sweep integration and multi-objective design
 selection are not included yet.
+
+
+## v1.0 development: AC geometry sweep
+
+The initial AC sweep runner is in `src/parameter_sweep_ac.py`. It changes one
+shared MOSFET W or L value across the selected devices, writes a separate
+netlist for each sweep point, runs LTspice, exports the complex AC RAW data,
+and calculates loop-gain metrics with the existing AC analysis functions.
+
+Example — sweep the symmetric M1/M2 input pair:
+
+```bash
+python3 -m src.parameter_sweep_ac two_stage_opamp_CC1P_acSweep.net \
+  --device M1 --device M2 \
+  --parameter w \
+  --values 10u 12u 16u
+```
+
+The output summary contains low-frequency loop gain, UGBW, phase margin,
+phase at UGBW, frequency range, point count, convergence metadata, warning
+count, and DC MOSFET operating-point values reported in the LTspice log.
+
+The AC RAW currents are small-signal complex phasors. They must not be used
+as DC supply currents for quiescent power calculations. DC supply power
+requires a separate Operating Point RAW result or a separate `.op` run.

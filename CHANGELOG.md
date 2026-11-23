@@ -4,7 +4,9 @@
 - Initial LTspice batch runner for existing netlists, with platform-specific command handling.
 - MOSFET geometry controller for updating selected device W/L values in a copied netlist.
 - DC geometry sweep runner for repeated W/L variants, LTspice execution and CSV result collection.
-- Unit tests for geometry updates and DC sweep orchestration.
+- AC geometry sweep runner with complex RAW export and loop-gain, UGBW and phase-margin calculation.
+- AC sweep results include DC MOSFET operating-point values and convergence/warning metadata from the simulation log.
+- Unit tests for geometry updates and AC/DC sweep orchestration.
 
 ### Not included yet
 - Automatic schematic-to-netlist generation.
