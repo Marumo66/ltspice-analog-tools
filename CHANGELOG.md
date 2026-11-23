@@ -1,3 +1,17 @@
+## Unreleased — v1.0 development
+
+### Added
+- Initial `LTspiceRunner` for existing `.net` files using the `-b -Run` command.
+- LTspice executable discovery through `LTSPICE_EXECUTABLE`, common install paths and macOS Spotlight.
+- Timeout, process error and fresh `.raw` / `.log` output checks.
+- Ten unit tests for command construction and runner failure/success paths.
+
+### Not included yet
+- Schematic-to-netlist generation.
+- Netlist parameter editing.
+- Parameter sweeps, design constraints or optimisation.
+- End-to-end verification against the user's installed LTspice application.
+
 # Changelog
 
 ## 0.2.0 — AC/DC Analysis

@@ -127,3 +127,30 @@ print(power["total_power_delivered_uW"])
 ## Regression fixtures
 
 The `tests/fixtures` directory contains regression data from a two-stage CMOS op-amp example. These fixtures support parser and metric regression tests; they are not a complete standalone LTspice project and do not include the external 130 nm model library.
+
+
+## v1.0 development: LTspice batch runner
+
+The initial runner is in `src/ltspice_runner.py`. It accepts an existing
+`.net` file, invokes LTspice with `-b -Run`, and checks that fresh, non-empty
+`.raw` and `.log` files were written next to the netlist.
+
+Example:
+
+```bash
+python3 -m src.ltspice_runner /path/to/opamp.net
+```
+
+If LTspice is not found automatically, set `LTSPICE_EXECUTABLE` to the
+executable inside `LTspice.app` on macOS or to `LTspice.exe` on Windows:
+
+```bash
+export LTSPICE_EXECUTABLE="/Applications/LTspice.app/Contents/MacOS/LTspice"
+python3 -m src.ltspice_runner /path/to/opamp.net
+```
+
+This first version runs an existing netlist only. It does not generate a
+netlist from an `.asc` schematic, edit parameters, or perform parameter
+sweeps. The automated tests use a mocked simulator process; batch invocation
+must still be verified with the LTspice installation and operating system
+used for a real simulation.
