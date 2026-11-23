@@ -114,20 +114,15 @@ def _resolve_library(reference: str, directory: Path) -> Optional[Path]:
     if re.match(r"^[A-Za-z]:[\\/]", reference):
         windows_parts = PureWindowsPath(reference).parts[1:]
         support = Path.home() / "Library" / "Application Support" / "LTspice"
-        drive_roots = list((support / "Bottles").glob("*/drive_c"))
-        drive_roots.append(
-            Path(
-                "/Applications/LTspice.app/Contents/SharedSupport/ltspice/"
-                "support/ltspice/drive_c"
-            )
-        )
         relative = Path(*windows_parts) if windows_parts else Path()
-        for drive_root in drive_roots:
+
+        # Prefer the active user Bottle, matching a C:\users\crossover path.
+        for drive_root in (support / "Bottles").glob("*/drive_c"):
             path = drive_root / relative
             if path.is_file():
                 return path.resolve()
 
-        # LTspice also stores standard libraries in native Application Support.
+        # Next try the native per-user LTspice library location.
         folded = [part.casefold() for part in windows_parts]
         marker = ("appdata", "local", "ltspice")
         for index in range(len(folded) - len(marker) + 1):
@@ -136,6 +131,15 @@ def _resolve_library(reference: str, directory: Path) -> Optional[Path]:
                 native_path = support / tail
                 if native_path.is_file():
                     return native_path.resolve()
+
+        # Finally, try the copy shipped inside the LTspice application bundle.
+        app_bundle_drive = Path(
+            "/Applications/LTspice.app/Contents/SharedSupport/ltspice/"
+            "support/ltspice/drive_c"
+        )
+        app_bundle_path = app_bundle_drive / relative
+        if app_bundle_path.is_file():
+            return app_bundle_path.resolve()
 
     candidate = Path(reference.replace("\\", "/")).expanduser()
     possible = [candidate] if candidate.is_absolute() else [directory / candidate]

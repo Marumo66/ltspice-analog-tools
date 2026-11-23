@@ -158,6 +158,12 @@ class TestModelChecker(unittest.TestCase):
         )
         bottle_file.parent.mkdir(parents=True)
         bottle_file.write_text("* bottle model file\n", encoding="utf-8")
+        native_file = (
+            self.root / "Library" / "Application Support" / "LTspice"
+            / "lib" / "cmp" / "standard.mos"
+        )
+        native_file.parent.mkdir(parents=True)
+        native_file.write_text("* native fallback file\n", encoding="utf-8")
         windows_path = r"C:\users\crossover\AppData\Local\LTspice\lib\cmp\standard.mos"
         with patch("src.model_checker.Path.home", return_value=self.root):
             resolved = _resolve_library(windows_path, self.root)
