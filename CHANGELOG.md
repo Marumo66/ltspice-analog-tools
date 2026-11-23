@@ -1,18 +1,15 @@
 ## Unreleased — v1.0 development
 
 ### Added
-- Initial `LTspiceRunner` for existing `.net` files.
-- Platform-specific batch command construction: macOS uses `-b <file.net>`; Windows/Wine uses `-b -Run <file.net>`.
-- macOS process launch redirects stderr to stdout to avoid the LTspice 26.0.2 shutdown issue reported for separate standard streams.
-- LTspice executable discovery through `LTSPICE_EXECUTABLE`, common install paths and macOS Spotlight.
-- Timeout, process error and fresh `.raw` / `.log` output checks.
-- Platform-specific runner unit tests.
+- Initial LTspice batch runner for existing netlists, with platform-specific command handling.
+- MOSFET geometry controller for updating selected device W/L values in a copied netlist.
+- Eleven unit tests for geometry updates, validation and non-destructive output handling.
 
 ### Not included yet
-- Schematic-to-netlist generation.
-- Netlist parameter editing.
+- Automatic schematic-to-netlist generation.
+- Passive component or independent source parameter updates.
 - Parameter sweeps, design constraints or optimisation.
-- End-to-end verification against the user's installed LTspice application.
+- Full parameter-sweep-to-metrics workflow.
 
 ## 0.2.0 — AC/DC Analysis
 

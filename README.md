@@ -156,3 +156,23 @@ netlist from an `.asc` schematic, edit parameters, or perform parameter
 sweeps. The automated tests use a mocked simulator process; batch invocation
 must still be verified with the LTspice installation and operating system
 used for a real simulation.
+
+
+## v1.0 development: MOSFET geometry control
+
+The initial geometry controller is in `src/netlist_controller.py`. It updates
+numeric `W` and `L` values on explicitly named MOSFET instances and writes
+a new `.net` file. The input netlist is left unchanged.
+
+Example:
+
+```bash
+python3 -m src.netlist_controller opamp_dc.net opamp_dc_variant.net \
+  --set M1.w=12u --set M2.w=12u --set M5.l=1.2u --set M6.w=15u
+```
+
+The output must be in the same directory as the source netlist so relative
+model-library references such as `.include cmos130.lib` continue to resolve.
+Only positive numeric SPICE literals are supported for `W` and `L` at this
+stage; parameter expressions, passive components and source values are not
+updated by this controller yet.
