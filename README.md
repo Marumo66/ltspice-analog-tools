@@ -1,6 +1,6 @@
 # ltspice-analog-tools
 
-[![Python tests](https://github.com/Marumo66/ltspice-analog-tools/actions/workflows/python-tests.yml/badge.svg?branch=main)](https://github.com/Marumo66/ltspice-analog-tools/actions/workflows/python-tests.yml) **v1.0.0**
+[![Python tests](https://github.com/Marumo66/ltspice-analog-tools/actions/workflows/python-tests.yml/badge.svg?branch=main)](https://github.com/Marumo66/ltspice-analog-tools/actions/workflows/python-tests.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) **v1.0.0**
 
 Python tools for automating repeatable LTspice analysis and MOSFET geometry exploration. Start from an existing LTspice `.net` netlist, run controlled W/L sweeps, extract AC/DC metrics, apply engineering constraints, and compare feasible candidates.
 
@@ -116,6 +116,12 @@ docs/                    Demo, architecture notes and recorded experiment result
 - [Recorded CMOS op-amp sweep and design decision](docs/in-range-sweep-summary.md)
 - [Contributing and development workflow](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
+
+## License
+
+This project is licensed under the **MIT License**. You may use, modify, distribute and sell copies of the software, provided that the copyright and license notice are included. The software is provided without warranty. See [LICENSE](LICENSE) for the complete terms.
+
+Copyright (c) 2026 Haoyuan Xu.
 
 ## Contributing
 
