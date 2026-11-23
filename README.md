@@ -1,320 +1,192 @@
 # ltspice-analog-tools
 
-**Project status: v0.1 and v0.2 core capabilities implemented; v1.0 Design Automation in development.**
+**Version: 1.0.0-rc.1**
 
-A lightweight Python toolkit for extracting and analysing simulation results produced by LTspice.
+Python tools for running LTspice netlists, sweeping MOSFET geometry, analysing AC/DC results, checking model declarations and selecting a design from user-defined constraints.
 
 ## Current capabilities
 
-- Read binary `real forward` transient RAW files and export them to CSV.
-- Read binary `complex forward` AC RAW files and export real and imaginary trace components.
-- Calculate transient voltage slopes and average slew rate between the 20% and 80% levels.
-- Calculate loop gain, UGBW and phase margin from AC sweep data.
-- Parse BSIM3 MOSFET operating-point tables from LTspice SPICE Output Log files.
-- Parse real-valued, single-point Operating Point RAW files to extract node voltages, component currents and MOSFET terminal currents.
-- Calculate quiescent power for explicitly selected supply voltage sources.
-- Run a finite W/L candidate grid, apply numeric performance constraints, rank feasible candidates and write Markdown/JSON reports.
+- Parse binary transient RAW files and export voltage/current traces to CSV.
+- Calculate average slew rate over a selected 20%–80% transition interval.
+- Parse binary AC RAW files and export complex traces to CSV.
+- Calculate loop gain, unity-gain bandwidth (UGBW) and phase margin.
+- Parse BSIM3 MOSFET operating-point data from LTspice log files.
+- Parse supported single-point Operating Point RAW files for node voltages and currents.
+- Calculate quiescent power for explicitly selected voltage sources.
+- Run LTspice in batch mode on an existing `.net` netlist.
+- Create copied netlist variants with selected MOSFET W/L values changed.
+- Run DC, AC and matched AC/DC geometry sweeps and collect results in CSV files.
+- Check MOSFET model-declared geometry limits and selected model/library warnings without modifying the input files.
+- Run a finite parameter grid, apply performance constraints, rank feasible candidates and generate Markdown/JSON reports.
 
-## Supported input scope
+## Requirements
+
+- Python 3.9 or newer.
+- LTspice installed for real batch simulations and optimization runs.
+- No third-party Python runtime dependencies; the tools use the Python standard library.
+
+Clone the repository and run commands from the repository root. No package installation step is required.
+
+## Run the tests
+
+~~~bash
+python3 -m unittest discover -s tests -v
+~~~
+
+The current regression suite contains **109 tests**. The project owner has run all 109 successfully on macOS. GitHub Actions also runs the suite on the Python versions configured in `.github/workflows/python-tests.yml`.
+
+## Design optimization quick start
+
+The optimizer reuses the matched AC/DC sweep runner. It evaluates only the W or L values listed in a JSON configuration.
+
+1. Copy the example configuration:
+
+~~~bash
+cp examples/design_optimization.example.json examples/my_design.json
+~~~
+
+2. Edit `examples/my_design.json` and set `source_netlist` to the absolute path of your LTspice AC `.net` file. Replace the illustrative constraints with the requirements for your circuit.
+
+3. Run the optimizer:
+
+~~~bash
+python3 -m src.design_optimizer examples/my_design.json
+~~~
+
+The source netlist must contain exactly one active `.ac` directive. The optimizer writes separate AC and Operating Point netlist variants for each candidate; the original source netlist is not modified.
+
+### Example configuration
+
+~~~json
+{
+  "source_netlist": "/absolute/path/to/opamp_ac.net",
+  "devices": ["M1", "M2"],
+  "parameter": "w",
+  "values": ["6u", "7u", "8u", "9u", "10u"],
+  "supply_voltages": {
+    "VDD": 1.5
+  },
+  "constraints": {
+    "phase_margin_deg": {
+      "min": 46.0
+    },
+    "ugbw_Hz": {
+      "min": 13000000
+    },
+    "selected_supplies_power_delivered_uW": {
+      "max": 30.0
+    }
+  },
+  "objective": {
+    "metric": "ugbw_Hz",
+    "direction": "maximize"
+  },
+  "report_directory": "design_reports",
+  "timeout": 180
+}
+~~~
+
+Constraint keys must match numeric fields produced by the unified sweep CSV. Bounds are inclusive. The objective must identify one available result field and use `maximize` or `minimize`.
+
+### Optimization outputs
+
+For a source named `opamp_ac.net`, the default outputs are:
+
+- `opamp_ac_optimization_sweep.csv` beside the source netlist.
+- `design_reports/opamp_ac_design_optimization.md`.
+- `design_reports/opamp_ac_design_optimization.json`.
+
+The report directory is relative to the source netlist unless an absolute path is supplied. The CSV must remain in the source netlist directory so the simulator variants and their relative model-library references stay together. Existing output files are not overwritten.
+
+Full configuration fields, result metrics and search semantics are described in [docs/design-automation-v1.0.md](docs/design-automation-v1.0.md).
+
+## Sweep commands
+
+### Matched AC/DC sweep
+
+~~~bash
+python3 -m src.parameter_sweep_unified opamp_ac.net \
+  --device M1 --device M2 \
+  --parameter w \
+  --values 6u 7u 8u 9u 10u \
+  --supply VDD=1.5
+~~~
+
+Each candidate runs two LTspice simulations: one AC run and one Operating Point run. The combined CSV includes AC loop-gain metrics, DC operating-point values, explicitly selected supply power, convergence method and warning counts.
+
+### DC-only sweep
+
+~~~bash
+python3 -m src.parameter_sweep opamp_dc.net \
+  --device M1 --device M2 \
+  --parameter w \
+  --values 6u 8u 10u \
+  --supply VDD=1.5
+~~~
+
+### AC-only sweep
+
+~~~bash
+python3 -m src.parameter_sweep_ac opamp_ac.net \
+  --device M1 --device M2 \
+  --parameter w \
+  --values 6u 8u 10u
+~~~
+
+### Run a single existing netlist
+
+~~~bash
+python3 -m src.ltspice_runner opamp.net
+~~~
+
+If LTspice cannot be found automatically, set `LTSPICE_EXECUTABLE` to the executable inside the installed application. On macOS, for example:
+
+~~~bash
+export LTSPICE_EXECUTABLE="/Applications/LTspice.app/Contents/MacOS/LTspice"
+~~~
+
+## Model checker
+
+The read-only checker compares numeric MOSFET W/L literals with `WMIN`, `WMAX`, `LMIN` and `LMAX` declared by referenced NMOS/PMOS model cards. It follows local `.include`, `.inc` and model-file `.lib` references and can resolve common Windows LTspice library paths on macOS.
+
+~~~bash
+python3 -m src.model_checker opamp.net --supply VDD=1.5
+~~~
+
+Add `--strict` to return exit code 2 when a declared geometry bound is violated:
+
+~~~bash
+python3 -m src.model_checker opamp.net --supply VDD=1.5 --strict
+~~~
+
+The checker does not edit the netlist or model library, infer diffusion geometry, or certify simulator/model compatibility. Comment-based supply ranges are reported as model-file recommendations, not as a complete safe-operating-area guarantee.
+
+## Input formats and analysis assumptions
 
 | Input | Supported format | Output |
 |---|---|---|
 | Transient RAW | Binary, real, forward | CSV |
 | AC RAW | Binary, complex, forward | CSV with real/imaginary columns |
-| DC log | BSIM3 MOSFET Semiconductor Device Operating Points section | Per-device CSV and convergence metadata |
-| DC RAW | Binary, real, one-point Operating Point file | Node voltages, component/device currents and variable CSV |
+| DC log | BSIM3 Semiconductor Device Operating Points section | Per-device metrics and convergence/warning metadata |
+| DC RAW | Binary, real, one-point Operating Point file | Node voltages, component/device currents and CSV |
 
-The RAW layouts have been validated with LTspice 26.0.2 on macOS. Other RAW layouts, compressed/native alternatives, multi-point Operating Point files and untested LTspice versions are not claimed as supported.
+The RAW layouts were validated against LTspice 26.0.2 on macOS. Other RAW variants are not claimed as supported. The DC RAW parser supports the verified real-valued, single-point Operating Point layout; it is not a general parser for every LTspice RAW format.
 
-## AC analysis assumptions
+The AC metrics helper uses the return ratio `-V(out) / V(nfb)` and reports the first descending 0 dB crossing, interpolated on a log-frequency axis. Configure the output and feedback traces for the circuit under analysis; the helper does not infer a return ratio for arbitrary testbenches.
 
-The AC metrics helper uses the return ratio `-V(out) / V(nfb)` and reports the first descending 0 dB crossing. Interpolation is performed on a log-frequency axis. The input CSV must contain the corresponding output and feedback traces. The helper does not infer a loop gain from an arbitrary circuit or testbench.
+Quiescent power is calculated only for voltage sources explicitly selected by the caller. The caller must provide each source's signed positive-to-negative DC voltage. LTspice voltage-source current is positive into the source's positive terminal, so power delivered by a source is `-(V_source * I_source)`. The result is the net power delivered by the selected sources, not necessarily the total dissipation of a circuit if relevant supplies are omitted.
 
-## DC analysis assumptions and limitations
+## Optimization scope and limitations
 
-The DC log parser targets the `Semiconductor Device Operating Points` section for BSIM3 MOSFETs. It preserves signed values as reported by LTspice and retains simulator warnings and convergence information.
+- The optimizer performs a finite, one-dimensional grid search over values supplied by the user. It does not generate new values or refine the grid adaptively.
+- One geometry parameter (W or L) is varied per run. All selected MOSFETs receive the same value.
+- One scalar objective is optimized at a time. Multiple numeric constraints may be applied.
+- The selected candidate is the best feasible point among the supplied values, not a proof of a continuous or global optimum.
+- A successful simulator run does not by itself certify circuit specifications, model accuracy or silicon-level performance.
+- Simulator convergence information and model warnings remain part of the experiment record and should be reviewed by the engineer.
 
-The DC RAW parser supports the real-valued, one-point Operating Point layout validated against the supplied LTspice 26.0.2 macOS fixture. The first variable is read as a little-endian double and subsequent variables as 32-bit floats, matching that verified file layout. This is not a claim of support for every LTspice RAW variant.
+## Project records
 
-Quiescent power is calculated only for voltage sources explicitly named by the caller. The caller must supply each source's signed positive-to-negative DC voltage. LTspice voltage-source current is positive into the source's positive terminal, so power delivered by a source is `-(V_source * I_source)`. This avoids guessing which independent sources should count as supply rails. The reported total is the net power delivered by the selected sources; it is not automatically the total dissipation of an arbitrary circuit if relevant supplies are omitted.
-
-## Requirements and tests
-
-Python 3.9 or newer is required. The toolkit uses only the Python standard library; there are no third-party runtime dependencies.
-
-Run the complete test suite from the repository root:
-
-```bash
-python3 -m unittest discover -s tests -v
-```
-
-The existing regression suite contained 91 tests before the design-optimizer addition. The optimizer adds 18 tests for constraint validation, candidate selection, configuration handling and report generation. Run the full suite with the command above; the expanded suite has not yet been run on the target Mac.
-
-## Transient example
-
-```python
-from src.raw_parser import export_raw_to_csv
-from src.metrics import calculate_average_slew_rate
-
-export_raw_to_csv("opamp_transient.raw", "opamp_transient.csv")
-
-result = calculate_average_slew_rate(
-    "opamp_transient.csv",
-    v_low=0.25,
-    v_high=0.75,
-    direction="rising",
-    signal="V(out)",
-)
-
-print(result["average_slew_rate_V_per_us"])
-```
-
-## AC example
-
-```python
-from src.ac_parser import export_ac_raw_to_csv
-from src.ac_metrics import calculate_loop_gain_metrics
-
-export_ac_raw_to_csv("opamp_ac.raw", "opamp_ac.csv")
-result = calculate_loop_gain_metrics("opamp_ac.csv")
-
-print(result["ugbw_Hz"])
-print(result["phase_margin_deg"])
-```
-
-## DC log example
-
-```python
-from src.dc_parser import (
-    parse_dc_operating_point_log,
-    export_dc_operating_points_to_csv,
-)
-
-result = parse_dc_operating_point_log("opamp_dc.log")
-print(result["devices"]["M1"]["Gm"])
-print(result["metadata"]["convergence_method"])
-
-export_dc_operating_points_to_csv(
-    "opamp_dc.log",
-    "results/opamp_dc_operating_points.csv",
-)
-```
-
-## DC RAW and power example
-
-```python
-from src.dc_raw_parser import (
-    parse_dc_operating_point_raw,
-    export_dc_operating_point_raw_to_csv,
-    calculate_quiescent_power,
-)
-
-result = parse_dc_operating_point_raw("opamp_dc.raw")
-print(result["node_voltages"]["V(out)"])
-print(result["component_currents"]["I(VDD)"])
-
-export_dc_operating_point_raw_to_csv(
-    "opamp_dc.raw",
-    "results/opamp_dc_variables.csv",
-)
-
-power = calculate_quiescent_power(
-    "opamp_dc.raw",
-    supply_voltages={"VDD": 1.5},
-)
-print(power["total_power_delivered_uW"])
-```
-
-## Regression fixtures
-
-The `tests/fixtures` directory contains regression data from a two-stage CMOS op-amp example. These fixtures support parser and metric regression tests; they are not a complete standalone LTspice project and do not include the external 130 nm model library.
-
-
-## v1.0 development: LTspice batch runner
-
-The initial runner is in `src/ltspice_runner.py`. It accepts an existing
-`.net` file and checks that fresh, non-empty `.raw` and `.log` files were
-written next to the netlist. On native macOS it invokes LTspice with
-`-b <file.net>` and redirects stderr to stdout; Windows/Wine uses
-`-b -Run <file.net>`.
-
-Example:
-
-```bash
-python3 -m src.ltspice_runner /path/to/opamp.net
-```
-
-If LTspice is not found automatically, set `LTSPICE_EXECUTABLE` to the
-executable inside `LTspice.app` on macOS or to `LTspice.exe` on Windows:
-
-```bash
-export LTSPICE_EXECUTABLE="/Applications/LTspice.app/Contents/MacOS/LTspice"
-python3 -m src.ltspice_runner /path/to/opamp.net
-```
-
-This first version runs an existing netlist only. It does not generate a
-netlist from an `.asc` schematic, edit parameters, or perform parameter
-sweeps. The automated tests use a mocked simulator process; batch invocation
-must still be verified with the LTspice installation and operating system
-used for a real simulation.
-
-
-## v1.0 development: MOSFET geometry control
-
-The initial geometry controller is in `src/netlist_controller.py`. It updates
-numeric `W` and `L` values on explicitly named MOSFET instances and writes
-a new `.net` file. The input netlist is left unchanged.
-
-Example:
-
-```bash
-python3 -m src.netlist_controller opamp_dc.net opamp_dc_variant.net \
-  --set M1.w=12u --set M2.w=12u --set M5.l=1.2u --set M6.w=15u
-```
-
-The output must be in the same directory as the source netlist so relative
-model-library references such as `.include cmos130.lib` continue to resolve.
-Only positive numeric SPICE literals are supported for `W` and `L` at this
-stage; parameter expressions, passive components and source values are not
-updated by this controller yet.
-
-
-## v1.0 development: DC geometry sweep
-
-The initial DC sweep runner is in `src/parameter_sweep.py`. It applies one
-shared W or L value to a selected group of MOSFETs, writes a separate netlist
-for each value, runs LTspice, parses the generated DC RAW and LOG files, and
-writes the measured values to a summary CSV.
-
-Example — sweep the symmetric M1/M2 input pair:
-
-```bash
-python3 -m src.parameter_sweep opamp_dc.net \
-  --device M1 --device M2 \
-  --parameter w \
-  --values 8u 10u 12u 14u 16u \
-  --supply VDD=1.5
-```
-
-The generated netlists and RAW/LOG results are written beside the source
-netlist. The source file is not modified. The CSV reports DC node voltages,
-selected supply currents and power, convergence information, and operating
-point parameters for the swept devices.
-
-This first sweep is DC-only. It does not calculate UGBW or phase margin, and
-the reported supply power includes only the voltage sources explicitly
-specified with `--supply`. AC sweep integration and multi-objective design
-selection are not included yet.
-
-
-## v1.0 development: AC geometry sweep
-
-The initial AC sweep runner is in `src/parameter_sweep_ac.py`. It changes one
-shared MOSFET W or L value across the selected devices, writes a separate
-netlist for each sweep point, runs LTspice, exports the complex AC RAW data,
-and calculates loop-gain metrics with the existing AC analysis functions.
-
-Example — sweep the symmetric M1/M2 input pair:
-
-```bash
-python3 -m src.parameter_sweep_ac two_stage_opamp_CC1P_acSweep.net \
-  --device M1 --device M2 \
-  --parameter w \
-  --values 10u 12u 16u
-```
-
-The output summary contains low-frequency loop gain, UGBW, phase margin,
-phase at UGBW, frequency range, point count, convergence metadata, warning
-count, and DC MOSFET operating-point values reported in the LTspice log.
-
-The AC RAW currents are small-signal complex phasors. They must not be used
-as DC supply currents for quiescent power calculations. DC supply power
-requires a separate Operating Point RAW result or a separate `.op` run.
-
-
-## v1.0 development: matched AC/DC geometry sweep
-
-The unified sweep runner is in `src/parameter_sweep_unified.py`. It accepts
-one AC `.net` source as the circuit template. For every requested geometry
-it writes two siblings from the same edited netlist: an AC version retaining
-the active `.ac` directive, and an Operating Point version with that
-directive commented out and `.op` enabled.
-
-Example — sweep the symmetric M1/M2 input pair:
-
-```bash
-python3 -m src.parameter_sweep_unified two_stage_opamp_CC1P_acSweep.net \
-  --device M1 --device M2 \
-  --parameter w \
-  --values 10u 12u 16u \
-  --supply VDD=1.5
-```
-
-Each parameter point runs two LTspice simulations. The summary CSV combines
-AC low-frequency loop gain, UGBW and phase margin with DC node voltages,
-MOSFET operating-point values, selected-supply current and delivered power,
-and convergence/warning metadata from both logs.
-
-Using a single AC netlist as the template keeps the circuit topology, model
-references, device geometry and DC bias sources identical between the AC and
-Operating Point runs. The DC supply power is calculated from the separate
-Operating Point RAW file; AC RAW current traces are small-signal phasors and
-are not used as quiescent supply current.
-
-## v1.0 development: MOSFET model checks
-
-The read-only model checker is in `src/model_checker.py`. It reads the
-MOSFET W/L values in an LTspice `.net` file and compares numeric literals
-against `WMIN`, `WMAX`, `LMIN` and `LMAX` declared by referenced NMOS/PMOS
-model cards. It follows local `.include` / `.inc` / model-file `.lib` paths;
-use `--model` when a library is stored elsewhere or its path cannot be
-resolved. Windows absolute paths to LTspice libraries are mapped to matching
-macOS Bottle or Application Support locations when available. It also reports model-card `VERSION` values, checks explicitly
-provided supply voltages against a supply range stated in a model-file
-comment, and flags missing or zero `PD` / `PS` instance values for review.
-
-Example — inspect the course CMOS130 model and a 1.5 V supply:
-
-```bash
-python3 -m src.model_checker two_stage_opamp_CC1P_acSweep.net --supply VDD=1.5
-```
-
-To make an out-of-range W/L value return exit code 2 (for scripting or a
-preflight check), add `--strict`:
-
-```bash
-python3 -m src.model_checker two_stage_opamp_CC1P_acSweep.net --supply VDD=1.5 --strict
-```
-
-The checker treats model-card geometry values as declared bounds; it does not
-claim LTspice will refuse to simulate outside them. Expression-based geometry
-is not evaluated. A supply range found in a comment is reported as the
-model-file's stated recommendation, not as a complete electrical reliability
-or operating-area guarantee. The checker does not edit source netlists or
-model libraries, infer diffusion geometry, or certify compatibility between
-a model-card VERSION and an installed LTspice version.
-
-
-## v1.0 development: constraint-based design optimization
-
-The first design optimizer is in src/design_optimizer.py. It runs the existing
-matched AC/DC geometry sweep over a finite list of values supplied in a JSON
-configuration, applies inclusive min/max constraints to measured result fields,
-selects the best feasible candidate for one objective, and writes Markdown and
-JSON reports alongside the sweep CSV.
-
-This initial release supports one swept geometry parameter (W or L) per run.
-Multiple selected MOSFETs share the same value. It does not perform continuous,
-adaptive or multi-parameter optimization.
-
-See docs/design-automation-v1.0.md and
-examples/design_optimization.example.json for the configuration format and
-usage. Run it from the repository root:
-
-~~~bash
-python3 -m src.design_optimizer examples/design_optimization.example.json
-~~~
-
-Edit source_netlist in the example JSON to the path of your local LTspice AC
-.net file. The illustrative constraints in that example are not course
-specifications; replace them with the requirements for the circuit under test.
+- [v1.0 design automation guide](docs/design-automation-v1.0.md)
+- [In-range CMOS op-amp sweep results](docs/in-range-sweep-summary.md)
+- [Changelog](CHANGELOG.md)
