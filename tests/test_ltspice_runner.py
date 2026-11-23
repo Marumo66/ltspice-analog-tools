@@ -99,7 +99,7 @@ class TestLTspiceRunner(unittest.TestCase):
     @patch.dict(os.environ, {"LTSPICE_EXECUTABLE": ""})
     @patch("src.ltspice_runner.platform.system", return_value="Darwin")
     @patch("src.ltspice_runner.shutil.which")
-    def test_explicit_executable_is_not_required_when_discovery_fails(
+    def test_empty_executable_env_var_allows_discovery_to_fail(
         self, mocked_which, mocked_system
     ):
         mocked_which.return_value = None
