@@ -9,7 +9,7 @@ This note closes the current M1/M2 input-pair width sweep for the two-stage CMOS
 - Model library: the course-provided `cmos130.lib` (left unchanged)
 - Swept devices: M1 and M2 together
 - Swept parameter: width (W)
-- Fixed channel length: (L=1\,\mu\text{m})
+- Fixed channel length: L = 1 µm
 - Width points: 6, 7, 8, 9 and 10 µm
 - Supply used for the reported supply-power metric: `VDD=1.5 V`
 - Per-point simulation: one AC run plus one separate operating-point run (10 LTspice runs total)
@@ -55,8 +55,8 @@ This is the best candidate among the five tested points under the stated screeni
 
 The course model declares the following geometry bounds:
 
-- (W_{\min}=0.15\,\mu\text{m}), (W_{\max}=10\,\mu\text{m})
-- (L_{\min}=0.13\,\mu\text{m}), (L_{\max}=10\,\mu\text{m})
+- Wmin = 0.15 µm; Wmax = 10 µm
+- Lmin = 0.13 µm; Lmax = 10 µm
 
 All five swept widths (6–10 µm) and the fixed 1 µm channel length are within those declared bounds. The 10 µm point is exactly at the declared maximum. Earlier exploratory points above 10 µm are outside the declared W range and are not used to select the candidate.
 
