@@ -9,12 +9,41 @@ A few Python tools I wrote while working with LTspice simulations.
 - Calculate transient voltage slopes and average slew rate between the 20% and 80% levels.
 - Calculate loop gain, UGBW and phase margin from an AC sweep.
 - Parse BSIM3 MOSFET operating-point tables from LTspice SPICE Output Log files and export one row per device to CSV.
+- Parse real-valued Operating Point RAW files to extract node voltages and component/device currents.
+- Calculate DC supply power for explicitly selected voltage sources.
 
 The RAW readers have been tested with LTspice 26.0.2 on macOS. They only handle the binary layouts described above; other RAW formats are not supported yet.
 
 The AC metrics helper uses the return ratio `-V(out) / V(nfb)` and reports the first descending 0 dB crossing. The interpolation is done on a log-frequency axis. The input CSV must contain the corresponding output and feedback traces.
 
-The DC parser currently targets the `Semiconductor Device Operating Points` section for BSIM3 MOSFETs. It preserves signed values as reported by LTspice and retains simulator warnings and convergence information. The current parser does not yet extract the separate node-voltage / independent-source-current operating-point listing, so total supply power is not calculated by this version.
+The DC log parser targets the `Semiconductor Device Operating Points` section for BSIM3 MOSFETs. It preserves signed values as reported by LTspice and retains simulator warnings and convergence information. The DC RAW parser supports real-valued, one-point Operating Point RAW files, extracting node voltages, component currents, and MOSFET terminal currents. Quiescent supply power is calculated for explicitly selected voltage sources using their signed source currents and supplied DC voltages; it is not inferred from an arbitrary circuit.
+
+## DC RAW example
+
+```python
+from src.dc_raw_parser import (
+    parse_dc_operating_point_raw,
+    export_dc_operating_point_raw_to_csv,
+    calculate_quiescent_power,
+)
+
+result = parse_dc_operating_point_raw("opamp_dc.raw")
+print(result["node_voltages"]["V(out)"])
+print(result["component_currents"]["I(VDD)"])
+
+export_dc_operating_point_raw_to_csv(
+    "opamp_dc.raw",
+    "results/opamp_dc_variables.csv",
+)
+
+power = calculate_quiescent_power(
+    "opamp_dc.raw",
+    supply_voltages={"VDD": 1.5},
+)
+print(power["total_power_delivered_uW"])
+```
+
+The power helper requires the signed DC voltage of each selected supply source. LTspice voltage-source current is positive into the source's positive terminal, so delivered power is calculated as `-(V_source * I_source)`. This avoids treating arbitrary bias or input sources as supply rails.
 
 ## Run the tests
 
