@@ -275,7 +275,7 @@ def check_netlist_models(netlist_path, *, model_paths: Optional[Sequence[str]] =
             literal = instance["geometry"].get(key)
             if literal is None:
                 warnings.append(
-                    f"{name}: {key.upper()} is not specified; check the simulator's effective value and .log warning"
+                    f"{name}: {key.upper()} is not explicitly specified; check the simulator's effective value and .log warning"
                 )
             elif parse_spice_number(literal) == 0:
                 warnings.append(f"{name}: {key.upper()} is explicitly zero; verify diffusion geometry")
