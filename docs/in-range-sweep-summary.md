@@ -92,7 +92,7 @@ The runner creates matched AC and operating-point netlists for each point and wr
 The current project stage is considered complete:
 
 - Python automation for batch execution, MOSFET geometry edits, AC/DC sweeps and read-only model checks is in place.
-- The latest user-side regression run reported 91/91 Python tests passing.
+- The project's 109-test Python regression suite passed locally and in the documented CI matrix.
 - The in-range five-point sweep is complete.
 - The course model and original netlist template have been preserved.
 
