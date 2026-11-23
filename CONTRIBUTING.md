@@ -2,6 +2,10 @@
 
 Thanks for taking an interest in `ltspice-analog-tools`. The project aims to keep its analysis deterministic, its assumptions explicit and its original LTspice inputs unchanged.
 
+## License for contributions
+
+The project is distributed under the MIT License. By submitting a pull request, you agree that your contribution will be distributed under the same MIT License. Only submit material that you created or are legally permitted to license under these terms. If your contribution includes third-party code or data, identify its source and license clearly before submission.
+
 ## Project workflow
 
 1. **Report or scope the change.** Open an issue with the intended behavior, a minimal reproducible input and the observed/expected result.
