@@ -56,7 +56,10 @@ class TestLTspiceRunner(unittest.TestCase):
         self.assertEqual(result.return_code, 0)
         self.assertEqual(result.stdout, "batch done")
         mocked_run.assert_called_once()
-        self.assertEqual(mocked_run.call_args.kwargs["cwd"], str(self.root))
+        self.assertEqual(
+            Path(mocked_run.call_args.kwargs["cwd"]),
+            self.root.resolve(),
+        )
 
     @patch("src.ltspice_runner.subprocess.run")
     def test_rejects_zero_exit_without_output_files(self, mocked_run):

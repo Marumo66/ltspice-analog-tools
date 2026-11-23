@@ -49,8 +49,8 @@ def _candidate_executables():
     system = platform.system()
 
     configured = os.environ.get("LTSPICE_EXECUTABLE")
-    if configured:
-        yield configured
+    if configured and configured.strip():
+        yield configured.strip()
 
     if system == "Darwin":
         app_locations = [
