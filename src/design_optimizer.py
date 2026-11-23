@@ -455,12 +455,16 @@ def run_design_optimization(
         "evaluation": evaluation,
     }
 
+    # Serialize before creating either report so invalid JSON data cannot leave
+    # a partial Markdown-only report behind.
+    artifact_json = json.dumps(
+        artifact, indent=2, ensure_ascii=False, allow_nan=False
+    ) + "\n"
     # Exclusive creation prevents silently replacing a previous experiment.
     with markdown_path.open("x", encoding="utf-8", newline="") as output_file:
         output_file.write(report)
     with json_path.open("x", encoding="utf-8", newline="") as output_file:
-        json.dump(artifact, output_file, indent=2, ensure_ascii=False, allow_nan=False)
-        output_file.write("\n")
+        output_file.write(artifact_json)
 
     return {
         "simulation_count": sweep["simulation_count"],
