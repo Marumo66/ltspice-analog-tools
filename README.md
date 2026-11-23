@@ -47,7 +47,7 @@ Run the complete test suite from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-The project regression suite contains 28 tests. The current macOS working-copy run reported 28 passing tests.
+The project regression suite currently contains 57 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour and DC sweep orchestration. Run the full suite with the command above.
 
 ## Transient example
 

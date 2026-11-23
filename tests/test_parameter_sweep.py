@@ -136,7 +136,13 @@ class TestParameterSweep(unittest.TestCase):
             rows = list(csv.DictReader(file))
         self.assertEqual([row["sweep_value"] for row in rows], ["8u", "10u", "12u"])
         self.assertEqual(len(rows), 3)
-        self.assertAlmostEqual(float(rows[1]["selected_supplies_power_delivered_uW"]), 15.0)
+        # The fixture stores currents as 32-bit floats, so allow a small
+        # tolerance when the value is converted back to power in micro-watts.
+        self.assertAlmostEqual(
+            float(rows[1]["selected_supplies_power_delivered_uW"]),
+            15.0,
+            delta=1e-5,
+        )
 
     def test_source_netlist_is_not_modified(self):
         run_dc_geometry_sweep(
