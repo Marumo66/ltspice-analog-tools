@@ -1,0 +1,26 @@
+{
+  "source_netlist": "/absolute/path/to/two_stage_opamp_CC1P_acSweep_inrange.net",
+  "devices": ["M1", "M2"],
+  "parameter": "w",
+  "values": ["6u", "7u", "8u", "9u", "10u"],
+  "supply_voltages": {
+    "VDD": 1.5
+  },
+  "constraints": {
+    "phase_margin_deg": {
+      "min": 46.0
+    },
+    "ugbw_Hz": {
+      "min": 13000000
+    },
+    "selected_supplies_power_delivered_uW": {
+      "max": 30.0
+    }
+  },
+  "objective": {
+    "metric": "ugbw_Hz",
+    "direction": "maximize"
+  },
+  "report_directory": "design_reports",
+  "timeout": 180
+}
