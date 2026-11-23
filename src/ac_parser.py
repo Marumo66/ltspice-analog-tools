@@ -35,8 +35,8 @@ def export_ac_raw_to_csv(raw_path, csv_path):
     if not {"complex", "forward"}.issubset(flag_set):
         raise ValueError("Only complex forward AC RAW files are supported")
 
-    variables_match = re.search(r"(?m)^No\. Variables:\s*(\d+)$", header)
-    points_match = re.search(r"(?m)^No\. Points:\s*(\d+)$", header)
+    variables_match = re.search(r"(?m)^No\. Variables:[ \t]*(\d+)\r?$", header)
+    points_match = re.search(r"(?m)^No\. Points:[ \t]*(\d+)\r?$", header)
     if variables_match is None or points_match is None:
         raise ValueError("RAW variable or point count not found")
 
