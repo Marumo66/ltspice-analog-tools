@@ -1,59 +1,53 @@
 # ltspice-analog-tools
 
-A few Python tools I wrote while working with LTspice simulations.
+**Release target: 0.2.0 — AC/DC Analysis**
+
+A lightweight Python toolkit for extracting and analysing simulation results produced by LTspice.
 
 ## Current capabilities
 
 - Read binary `real forward` transient RAW files and export them to CSV.
-- Read binary `complex forward` AC RAW files and export the real and imaginary parts.
+- Read binary `complex forward` AC RAW files and export real and imaginary trace components.
 - Calculate transient voltage slopes and average slew rate between the 20% and 80% levels.
-- Calculate loop gain, UGBW and phase margin from an AC sweep.
-- Parse BSIM3 MOSFET operating-point tables from LTspice SPICE Output Log files and export one row per device to CSV.
-- Parse real-valued Operating Point RAW files to extract node voltages and component/device currents.
-- Calculate DC supply power for explicitly selected voltage sources.
+- Calculate loop gain, UGBW and phase margin from AC sweep data.
+- Parse BSIM3 MOSFET operating-point tables from LTspice SPICE Output Log files.
+- Parse real-valued, single-point Operating Point RAW files to extract node voltages, component currents and MOSFET terminal currents.
+- Calculate quiescent power for explicitly selected supply voltage sources.
 
-The RAW readers have been tested with LTspice 26.0.2 on macOS. They only handle the binary layouts described above; other RAW formats are not supported yet.
+## Supported input scope
 
-The AC metrics helper uses the return ratio `-V(out) / V(nfb)` and reports the first descending 0 dB crossing. The interpolation is done on a log-frequency axis. The input CSV must contain the corresponding output and feedback traces.
+| Input | Supported format | Output |
+|---|---|---|
+| Transient RAW | Binary, real, forward | CSV |
+| AC RAW | Binary, complex, forward | CSV with real/imaginary columns |
+| DC log | BSIM3 MOSFET Semiconductor Device Operating Points section | Per-device CSV and convergence metadata |
+| DC RAW | Binary, real, one-point Operating Point file | Node voltages, component/device currents and variable CSV |
 
-The DC log parser targets the `Semiconductor Device Operating Points` section for BSIM3 MOSFETs. It preserves signed values as reported by LTspice and retains simulator warnings and convergence information. The DC RAW parser supports real-valued, one-point Operating Point RAW files, extracting node voltages, component currents, and MOSFET terminal currents. Quiescent supply power is calculated for explicitly selected voltage sources using their signed source currents and supplied DC voltages; it is not inferred from an arbitrary circuit.
+The RAW layouts have been validated with LTspice 26.0.2 on macOS. Other RAW layouts, compressed/native alternatives, multi-point Operating Point files and untested LTspice versions are not claimed as supported.
 
-## DC RAW example
+## AC analysis assumptions
 
-```python
-from src.dc_raw_parser import (
-    parse_dc_operating_point_raw,
-    export_dc_operating_point_raw_to_csv,
-    calculate_quiescent_power,
-)
+The AC metrics helper uses the return ratio `-V(out) / V(nfb)` and reports the first descending 0 dB crossing. Interpolation is performed on a log-frequency axis. The input CSV must contain the corresponding output and feedback traces. The helper does not infer a loop gain from an arbitrary circuit or testbench.
 
-result = parse_dc_operating_point_raw("opamp_dc.raw")
-print(result["node_voltages"]["V(out)"])
-print(result["component_currents"]["I(VDD)"])
+## DC analysis assumptions and limitations
 
-export_dc_operating_point_raw_to_csv(
-    "opamp_dc.raw",
-    "results/opamp_dc_variables.csv",
-)
+The DC log parser targets the `Semiconductor Device Operating Points` section for BSIM3 MOSFETs. It preserves signed values as reported by LTspice and retains simulator warnings and convergence information.
 
-power = calculate_quiescent_power(
-    "opamp_dc.raw",
-    supply_voltages={"VDD": 1.5},
-)
-print(power["total_power_delivered_uW"])
-```
+The DC RAW parser supports the real-valued, one-point Operating Point layout validated against the supplied LTspice 26.0.2 macOS fixture. The first variable is read as a little-endian double and subsequent variables as 32-bit floats, matching that verified file layout. This is not a claim of support for every LTspice RAW variant.
 
-The power helper requires the signed DC voltage of each selected supply source. LTspice voltage-source current is positive into the source's positive terminal, so delivered power is calculated as `-(V_source * I_source)`. This avoids treating arbitrary bias or input sources as supply rails.
+Quiescent power is calculated only for voltage sources explicitly named by the caller. The caller must supply each source's signed positive-to-negative DC voltage. LTspice voltage-source current is positive into the source's positive terminal, so power delivered by a source is `-(V_source * I_source)`. This avoids guessing which independent sources should count as supply rails. The reported total is the net power delivered by the selected sources; it is not automatically the total dissipation of an arbitrary circuit if relevant supplies are omitted.
 
-## Run the tests
+## Requirements and tests
 
-Python 3.9 or newer is enough. There are no third-party dependencies.
+Python 3.9 or newer is required. The toolkit uses only the Python standard library; there are no third-party runtime dependencies.
 
-From the project folder:
+Run the complete test suite from the repository root:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+The project regression suite contains 28 tests. The current macOS working-copy run reported 28 passing tests.
 
 ## Transient example
 
@@ -87,9 +81,7 @@ print(result["ugbw_Hz"])
 print(result["phase_margin_deg"])
 ```
 
-For the AC example, the testbench needs to provide the return-ratio traces used by the calculation. The helper does not infer a loop gain from an arbitrary circuit.
-
-## DC operating-point example
+## DC log example
 
 ```python
 from src.dc_parser import (
@@ -107,6 +99,31 @@ export_dc_operating_points_to_csv(
 )
 ```
 
-Parsed device parameters are in the SI units used by LTspice (for example, current in A, voltage in V, transconductance in S, and capacitance in F). The parser reports convergence through Gmin stepping as converged, while retaining the fact that direct Newton iteration failed.
+## DC RAW and power example
 
-The Phase 4 fixtures are regression data from one two-stage CMOS op-amp simulation. They are used for tests, not as a complete standalone LTspice project. The AC fixture includes the 901-point sweep. The DC fixture contains the simulator log's BSIM3 device operating-point section; machine-specific file paths have been removed.
+```python
+from src.dc_raw_parser import (
+    parse_dc_operating_point_raw,
+    export_dc_operating_point_raw_to_csv,
+    calculate_quiescent_power,
+)
+
+result = parse_dc_operating_point_raw("opamp_dc.raw")
+print(result["node_voltages"]["V(out)"])
+print(result["component_currents"]["I(VDD)"])
+
+export_dc_operating_point_raw_to_csv(
+    "opamp_dc.raw",
+    "results/opamp_dc_variables.csv",
+)
+
+power = calculate_quiescent_power(
+    "opamp_dc.raw",
+    supply_voltages={"VDD": 1.5},
+)
+print(power["total_power_delivered_uW"])
+```
+
+## Regression fixtures
+
+The `tests/fixtures` directory contains regression data from a two-stage CMOS op-amp example. These fixtures support parser and metric regression tests; they are not a complete standalone LTspice project and do not include the external 130 nm model library.
