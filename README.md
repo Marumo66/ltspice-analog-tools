@@ -1,14 +1,17 @@
 # ltspice-analog-tools
 
-A few Python tools I wrote while working with LTspice transient simulations.
+A few Python tools I wrote while working with LTspice simulations.
 
 For now, it can:
 
-- read binary `real forward` RAW files and export the signals to CSV;
-- calculate the largest adjacent-sample voltage slopes;
-- calculate average slew rate between the 20% and 80% levels, with linear interpolation between samples.
+- read binary `real forward` transient RAW files and export them to CSV;
+- read binary `complex forward` AC RAW files and export the real and imaginary parts;
+- calculate transient voltage slopes and average slew rate between the 20% and 80% levels;
+- calculate loop gain, UGBW and phase margin from an AC sweep.
 
-The RAW reader has been tested with transient files from LTspice 26.0.2 on macOS. It does not handle complex AC data or other RAW layouts yet.
+The RAW readers have been tested with LTspice 26.0.2 on macOS. They only handle the binary layouts described above; other RAW formats are not supported yet.
+
+The AC metrics helper uses the return ratio `-V(out) / V(nfb)` and reports the first descending 0 dB crossing. The interpolation is done on a log-frequency axis. The input CSV must contain the corresponding output and feedback traces.
 
 ## Run the tests
 
@@ -20,7 +23,7 @@ From the project folder:
 python3 -m unittest discover -s tests -v
 ```
 
-## Example
+## Transient example
 
 ```python
 from src.raw_parser import export_raw_to_csv
@@ -39,6 +42,19 @@ result = calculate_average_slew_rate(
 print(result["average_slew_rate_V_per_us"])
 ```
 
-`v_low` and `v_high` are the endpoints of the output swing being measured. The function uses 20% and 80% of that range; it does not guess the levels from the waveform.
+## AC example
 
-The Phase 4 test fixture contains only the samples around the four threshold crossings from one two-stage op-amp simulation. It keeps the regression test small; it is not the full waveform.
+```python
+from src.ac_parser import export_ac_raw_to_csv
+from src.ac_metrics import calculate_loop_gain_metrics
+
+export_ac_raw_to_csv("opamp_ac.raw", "opamp_ac.csv")
+result = calculate_loop_gain_metrics("opamp_ac.csv")
+
+print(result["ugbw_Hz"])
+print(result["phase_margin_deg"])
+```
+
+For the AC example, the testbench needs to provide the return-ratio traces used by the calculation. The helper does not infer a loop gain from an arbitrary circuit.
+
+The Phase 4 fixtures are small samples from one two-stage CMOS op-amp simulation. The AC fixture keeps selected sweep points, including the points around the 0 dB crossing. They are used for regression tests, not as full simulation results.
