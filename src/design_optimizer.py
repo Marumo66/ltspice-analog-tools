@@ -294,6 +294,13 @@ def render_markdown_report(
     objective = evaluation["objective"]
     metric = objective["metric"]
     direction_label = "maximum" if objective["direction"] == "maximize" else "minimum"
+    supply_summary = ", ".join(
+        f"{name}={voltage:g} V"
+        for name, voltage in (supply_voltages or {}).items()
+    ) or "not specified"
+    simulation_summary = (
+        str(simulation_count) if simulation_count is not None else "not specified"
+    )
     lines = [
         "# LTspice Design Optimization Report",
         "",
@@ -305,8 +312,8 @@ def render_markdown_report(
         f"- Candidate values: {', '.join(values)}",
         "- Search type: finite one-dimensional grid search",
         f"- Objective: {direction_label} {metric}",
-        f"- Supply sources: {', '.join(f'{name}={voltage:g} V' for name, voltage in (supply_voltages or {}).items()) or 'not specified'}",
-        f"- LTspice simulations: {simulation_count if simulation_count is not None else 'not specified'}",
+        f"- Supply sources: {supply_summary}",
+        f"- LTspice simulations: {simulation_summary}",
         "",
         "## Design constraints",
         "",
