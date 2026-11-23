@@ -288,6 +288,8 @@ def render_markdown_report(
     parameter: str,
     values: Sequence[str],
     csv_path: str,
+    supply_voltages: Optional[Mapping[str, float]] = None,
+    simulation_count: Optional[int] = None,
 ) -> str:
     objective = evaluation["objective"]
     metric = objective["metric"]
@@ -303,6 +305,8 @@ def render_markdown_report(
         f"- Candidate values: {', '.join(values)}",
         "- Search type: finite one-dimensional grid search",
         f"- Objective: {direction_label} {metric}",
+        f"- Supply sources: {', '.join(f'{name}={voltage:g} V' for name, voltage in (supply_voltages or {}).items()) or 'not specified'}",
+        f"- LTspice simulations: {simulation_count if simulation_count is not None else 'not specified'}",
         "",
         "## Design constraints",
         "",
@@ -342,7 +346,18 @@ def render_markdown_report(
         ])
 
     constraint_names = list(evaluation["constraints"])
-    headers = ["Candidate", metric] + constraint_names + ["Feasible"]
+    diagnostic_names = [
+        "ac_convergence_method", "ac_warning_count",
+        "op_convergence_method", "op_warning_count",
+    ]
+    available_diagnostics = [
+        name for name in diagnostic_names
+        if any(name in item["metrics"] for item in evaluation["candidates"])
+    ]
+    headers = (
+        ["Candidate", metric] + constraint_names
+        + available_diagnostics + ["Feasible"]
+    )
     lines.extend(["", "## Candidate comparison", ""])
     lines.append("| " + " | ".join(headers) + " |")
     lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
@@ -356,6 +371,9 @@ def render_markdown_report(
             check = item["checks"][name]
             formatted = _format_metric(name, check["actual"])
             cells.append(f"{formatted} ({'pass' if check['passed'] else 'fail'})")
+        for name in available_diagnostics:
+            value = item["metrics"].get(name, "")
+            cells.append(str(value))
         cells.append("yes" if item["feasible"] else "no")
         lines.append("| " + " | ".join(cells) + " |")
 
@@ -441,6 +459,8 @@ def run_design_optimization(
         parameter=config["parameter"],
         values=config["values"],
         csv_path=str(sweep["csv_path"]),
+        supply_voltages=config["supply_voltages"],
+        simulation_count=sweep["simulation_count"],
     )
 
     artifact = {
