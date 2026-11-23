@@ -176,3 +176,31 @@ model-library references such as `.include cmos130.lib` continue to resolve.
 Only positive numeric SPICE literals are supported for `W` and `L` at this
 stage; parameter expressions, passive components and source values are not
 updated by this controller yet.
+
+
+## v1.0 development: DC geometry sweep
+
+The initial DC sweep runner is in `src/parameter_sweep.py`. It applies one
+shared W or L value to a selected group of MOSFETs, writes a separate netlist
+for each value, runs LTspice, parses the generated DC RAW and LOG files, and
+writes the measured values to a summary CSV.
+
+Example — sweep the symmetric M1/M2 input pair:
+
+```bash
+python3 -m src.parameter_sweep opamp_dc.net \
+  --device M1 --device M2 \
+  --parameter w \
+  --values 8u 10u 12u 14u 16u \
+  --supply VDD=1.5
+```
+
+The generated netlists and RAW/LOG results are written beside the source
+netlist. The source file is not modified. The CSV reports DC node voltages,
+selected supply currents and power, convergence information, and operating
+point parameters for the swept devices.
+
+This first sweep is DC-only. It does not calculate UGBW or phase margin, and
+the reported supply power includes only the voltage sources explicitly
+specified with `--supply`. AC sweep integration and multi-objective design
+selection are not included yet.
