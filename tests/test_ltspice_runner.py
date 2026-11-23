@@ -96,15 +96,16 @@ class TestLTspiceRunner(unittest.TestCase):
         with self.assertRaisesRegex(LTspiceRunnerError, "did not finish"):
             self.runner.run_netlist(self.netlist)
 
-    @patch.dict(os.environ, {"LTSPICE_EXECUTABLE": ""})
-    @patch("src.ltspice_runner.platform.system", return_value="Darwin")
-    @patch("src.ltspice_runner.shutil.which")
-    def test_empty_executable_env_var_allows_discovery_to_fail(
-        self, mocked_which, mocked_system
-    ):
-        mocked_which.return_value = None
-        with self.assertRaisesRegex(LTspiceRunnerError, "Could not locate"):
-            find_ltspice_executable()
+    def test_empty_executable_env_var_allows_discovery_to_fail(self):
+        # Isolate the test from LTspice installations on the developer's Mac.
+        with patch.dict(os.environ, {"LTSPICE_EXECUTABLE": ""}):
+            with patch("src.ltspice_runner.platform.system", return_value="Darwin"):
+                with patch("src.ltspice_runner.Path.is_file", return_value=False):
+                    with patch("src.ltspice_runner.shutil.which", return_value=None):
+                        with self.assertRaisesRegex(
+                            LTspiceRunnerError, "Could not locate"
+                        ):
+                            find_ltspice_executable()
 
     def test_rejects_non_positive_timeout(self):
         with self.assertRaisesRegex(ValueError, "timeout"):
