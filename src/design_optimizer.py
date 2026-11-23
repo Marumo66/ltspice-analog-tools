@@ -352,7 +352,14 @@ def render_markdown_report(
             "It is not a claim of a continuous or global optimum.",
         ])
 
-    constraint_names = list(evaluation["constraints"])
+    objective_is_constraint = metric in evaluation["constraints"]
+    objective_header = (
+        f"{metric} (objective; constraint)"
+        if objective_is_constraint else metric
+    )
+    constraint_names = [
+        name for name in evaluation["constraints"] if name != metric
+    ]
     diagnostic_names = [
         "ac_convergence_method", "ac_warning_count",
         "op_convergence_method", "op_warning_count",
@@ -362,7 +369,7 @@ def render_markdown_report(
         if any(name in item["metrics"] for item in evaluation["candidates"])
     ]
     headers = (
-        ["Candidate", metric] + constraint_names
+        ["Candidate", objective_header] + constraint_names
         + available_diagnostics + ["Feasible"]
     )
     lines.extend(["", "## Candidate comparison", ""])
@@ -370,10 +377,12 @@ def render_markdown_report(
     lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
 
     for item in evaluation["candidates"]:
-        cells = [
-            str(item["sweep_value"]),
-            _format_metric(metric, item["objective_value"]),
-        ]
+        objective_cell = _format_metric(metric, item["objective_value"])
+        if objective_is_constraint:
+            objective_check = item["checks"][metric]
+            status = "pass" if objective_check["passed"] else "fail"
+            objective_cell = f"{objective_cell} ({status})"
+        cells = [str(item["sweep_value"]), objective_cell]
         for name in constraint_names:
             check = item["checks"][name]
             formatted = _format_metric(name, check["actual"])
