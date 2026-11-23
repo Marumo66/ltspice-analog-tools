@@ -88,7 +88,7 @@ def validate_objective(objective: Any) -> dict[str, str]:
     direction = objective["direction"]
     if not isinstance(metric, str) or not metric.strip():
         raise ValueError("objective.metric must be a non-empty result field name")
-    if direction not in {"maximize", "minimize"}:
+    if not isinstance(direction, str) or direction not in {"maximize", "minimize"}:
         raise ValueError("objective.direction must be 'maximize' or 'minimize'")
     return {"metric": metric, "direction": direction}
 
@@ -400,6 +400,8 @@ def run_design_optimization(
     markdown_path = report_directory / f"{report_stem}.md"
     json_path = report_directory / f"{report_stem}.json"
 
+    if report_directory.exists() and not report_directory.is_dir():
+        raise NotADirectoryError(f"Report directory is not a directory: {report_directory}")
     existing = [
         path for path in (config["output_csv"], markdown_path, json_path)
         if path.exists()
