@@ -109,7 +109,7 @@ For a real smoke test, run the example configuration against a local copy of the
 
 ## v1.0.0 validation record
 
-The v1.0.0 release candidate was exercised on the project owner's macOS system with LTspice 26.0.2 using the course CMOS130 two-stage op-amp netlist:
+The v1.0.0 release was exercised on the project owner's macOS system with LTspice 26.0.2 using the course CMOS130 two-stage op-amp netlist:
 
 - Five M1/M2 width candidates: 6, 7, 8, 9 and 10 µm.
 - Ten LTspice simulations: one AC and one Operating Point run per candidate.
