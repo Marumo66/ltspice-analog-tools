@@ -1,7 +1,4 @@
-"""Check MOSFET geometry against limits declared in LTspice model cards.
-
-The checker is read-only: it never edits a netlist or a model library.
-"""
+"""Read-only MOSFET geometry checks against LTspice model cards."""
 
 from __future__ import annotations
 
@@ -14,50 +11,35 @@ import sys
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 
-_SPICE_NUMBER_RE = re.compile(
+_NUMBER_RE = re.compile(
     r"^(?P<number>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
     r"(?P<suffix>meg|mil|[tgkmunpf]?)$",
     re.IGNORECASE,
 )
-_MODEL_START_RE = re.compile(
+_MODEL_RE = re.compile(
     r"^\s*\.model\s+(?P<name>\S+)\s+(?P<kind>nmos|pmos)\b",
     re.IGNORECASE,
 )
-_PARAMETER_RE = re.compile(
+_ASSIGNMENT_RE = re.compile(
     r"\b(?P<name>[A-Za-z][A-Za-z0-9_]*)\s*=\s*(?P<value>[^\s()]+)"
 )
-_GEOMETRY_NAMES = {"w", "l", "pd", "ps"}
-_MODEL_FILE_SUFFIXES = {".lib", ".mod", ".mos", ".model", ".spice", ".cir"}
+_GEOMETRY_KEYS = {"w", "l", "pd", "ps"}
+_MODEL_SUFFIXES = {".lib", ".mod", ".mos", ".model", ".spice", ".cir"}
 
 
 def parse_spice_number(value: str) -> Optional[float]:
-    """Convert a numeric SPICE literal to its SI value; return None otherwise.
-
-    SPICE suffixes follow LTspice conventions, including M=milli and MEG=mega.
-    Expressions such as {W_IN} are intentionally not evaluated.
-    """
+    """Parse a numeric SPICE literal into SI units; expressions are not evaluated."""
     if not isinstance(value, str):
         return None
-    candidate = value.strip().rstrip(",;")
-    match = _SPICE_NUMBER_RE.fullmatch(candidate)
+    match = _NUMBER_RE.fullmatch(value.strip().rstrip(",;"))
     if match is None:
         return None
-    number = float(match.group("number"))
-    suffix = match.group("suffix").lower()
-    scales = {
-        "": 1.0,
-        "t": 1e12,
-        "g": 1e9,
-        "meg": 1e6,
-        "k": 1e3,
-        "m": 1e-3,
-        "mil": 25.4e-6,
-        "u": 1e-6,
-        "n": 1e-9,
-        "p": 1e-12,
-        "f": 1e-15,
-    }
-    result = number * scales[suffix]
+    scale = {
+        "": 1.0, "t": 1e12, "g": 1e9, "meg": 1e6, "k": 1e3,
+        "m": 1e-3, "mil": 25.4e-6, "u": 1e-6, "n": 1e-9,
+        "p": 1e-12, "f": 1e-15,
+    }[match.group("suffix").lower()]
+    result = float(match.group("number")) * scale
     return result if math.isfinite(result) else None
 
 
@@ -66,34 +48,31 @@ def _read_text(path: Path) -> str:
 
 
 def _parse_model_cards(text: str, source: str) -> Dict[str, dict]:
-    """Parse simple .MODEL NMOS/PMOS cards with '+' continuation lines."""
+    """Read NMOS/PMOS .MODEL cards, including '+' continuation lines."""
     lines = text.splitlines()
     models: Dict[str, dict] = {}
     index = 0
     while index < len(lines):
-        line = lines[index]
-        match = _MODEL_START_RE.match(line)
+        match = _MODEL_RE.match(lines[index])
         if match is None:
             index += 1
             continue
-
-        fragments = [line]
+        fragments = [lines[index]]
         index += 1
         while index < len(lines):
-            continuation = lines[index].lstrip()
-            if not continuation or continuation.startswith(("*", ";")):
+            line = lines[index].lstrip()
+            if not line or line.startswith(("*", ";")):
                 index += 1
                 continue
-            if continuation.startswith("+"):
-                fragments.append(continuation[1:])
+            if line.startswith("+"):
+                fragments.append(line[1:])
                 index += 1
                 continue
             break
-
-        parameters = {}
-        for parameter in _PARAMETER_RE.finditer(" ".join(fragments)):
-            parameters[parameter.group("name").upper()] = parameter.group("value")
-
+        parameters = {
+            item.group("name").upper(): item.group("value")
+            for item in _ASSIGNMENT_RE.finditer(" ".join(fragments))
+        }
         name = match.group("name")
         models[name.casefold()] = {
             "name": name,
@@ -104,10 +83,9 @@ def _parse_model_cards(text: str, source: str) -> Dict[str, dict]:
     return models
 
 
-def _include_candidates(netlist_text: str) -> List[str]:
-    """Return model-library paths named by .include/.inc/.lib directives."""
-    candidates: List[str] = []
-    for line in netlist_text.splitlines():
+def _library_references(text: str) -> List[str]:
+    references = []
+    for line in text.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith(("*", ";")):
             continue
@@ -122,156 +100,292 @@ def _include_candidates(netlist_text: str) -> List[str]:
         if not tokens:
             continue
         candidate = tokens[0].strip().strip("\"'")
-        # '.lib TT' can denote a section in an already opened library. Treat
-        # it as a path only when it looks like a model file or exists locally.
         if directive.lower() == "lib":
             suffix = Path(candidate.replace("\\", "/")).suffix.lower()
-            if suffix not in _MODEL_FILE_SUFFIXES and not Path(candidate).exists():
+            if suffix not in _MODEL_SUFFIXES and not Path(candidate).exists():
                 continue
-        candidates.append(candidate)
-    return candidates
+        references.append(candidate)
+    return references
 
 
-def _resolve_library_path(candidate: str, netlist_dir: Path) -> Optional[Path]:
-    normalized = candidate.replace("\\", "/")
-    candidate_path = Path(normalized).expanduser()
-    possible = []
-    if candidate_path.is_absolute():
-        possible.append(candidate_path)
-    else:
-        possible.append(netlist_dir / candidate_path)
+def _resolve_library(reference: str, directory: Path) -> Optional[Path]:
+    candidate = Path(reference.replace("\\", "/")).expanduser()
+    possible = [candidate] if candidate.is_absolute() else [directory / candidate]
     for path in possible:
         if path.is_file():
             return path.resolve()
-
-    # A Windows absolute path in a netlist may have been moved with the
-    # project to macOS. Check for the same filename beside the netlist.
-    basename = candidate_path.name
+    # Netlists moved between Windows and macOS may retain an old absolute path.
+    basename = candidate.name.casefold()
     if basename:
         try:
-            for child in netlist_dir.iterdir():
-                if child.is_file() and child.name.casefold() == basename.casefold():
+            for child in directory.iterdir():
+                if child.is_file() and child.name.casefold() == basename:
                     return child.resolve()
         except OSError:
             pass
     return None
 
 
-def _load_models(
-    netlist_path: Path,
-    netlist_text: str,
-    explicit_model_paths: Sequence[str],
-) -> Tuple[Dict[str, dict], List[str], List[str]]:
-    model_paths: List[Path] = []
+def _load_models(netlist_path: Path, netlist_text: str,
+                 explicit_paths: Sequence[str]) -> Tuple[Dict[str, dict], List[Path], List[str]]:
+    initial_paths: List[Path] = []
     unresolved: List[str] = []
-    for candidate in [*_include_candidates(netlist_text), *explicit_model_paths]:
-        resolved = _resolve_library_path(candidate, netlist_path.parent)
-        if resolved is None:
-            unresolved.append(candidate)
-        elif resolved not in model_paths:
-            model_paths.append(resolved)
+    for reference in [*_library_references(netlist_text), *explicit_paths]:
+        path = _resolve_library(reference, netlist_path.parent)
+        if path is None:
+            unresolved.append(reference)
+        elif path not in initial_paths:
+            initial_paths.append(path)
 
     models = _parse_model_cards(netlist_text, str(netlist_path))
+    loaded: List[Path] = []
     visited = set()
-    loaded_paths: List[Path] = []
 
     def visit(path: Path) -> None:
-        resolved = path.resolve()
-        if resolved in visited:
+        path = path.resolve()
+        if path in visited:
             return
-        visited.add(resolved)
-        loaded_paths.append(resolved)
-        content = _read_text(resolved)
-        models.update(_parse_model_cards(content, str(resolved)))
-        for nested in _include_candidates(content):
-            nested_path = _resolve_library_path(nested, resolved.parent)
-            if nested_path is not None:
-                visit(nested_path)
+        visited.add(path)
+        loaded.append(path)
+        content = _read_text(path)
+        models.update(_parse_model_cards(content, str(path)))
+        for reference in _library_references(content):
+            nested = _resolve_library(reference, path.parent)
+            if nested is None:
+                unresolved.append(reference)
             else:
-                unresolved.append(nested)
+                visit(nested)
 
-    for path in model_paths:
+    for path in initial_paths:
         visit(path)
-    return models, [str(path) for path in loaded_paths], unresolved
+    return models, loaded, unresolved
 
 
-def _parse_mosfet_instances(netlist_text: str) -> List[dict]:
+def _parse_mosfet_instances(text: str) -> List[dict]:
     instances = []
-    for line_number, line in enumerate(netlist_text.splitlines(), start=1):
+    for line_number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith(("*", ";", "+")):
             continue
-        # A semicolon starts an inline SPICE comment in LTspice netlists.
-        body = stripped.split(";", 1)[0].strip()
-        tokens = body.split()
+        tokens = stripped.split(";", 1)[0].split()
         if not tokens or not re.match(r"^M\S+$", tokens[0], re.IGNORECASE):
             continue
-        if len(tokens) < 6:
-            instances.append({
-                "name": tokens[0], "line": line_number, "model": None,
-                "geometry": {}, "parse_error": "MOSFET line has lessThan 4 nodes and a model name",
-            })
-            continue
-
         if len(tokens) < 6:
             instances.append({
                 "name": tokens[0], "line": line_number, "model": None,
                 "geometry": {}, "parse_error": "MOSFET line has too few tokens",
             })
             continue
-
         geometry = {}
-        for assignment in _PARAMETER_RE.finditer(" ".join(tokens[6:])):
-            key = assignment.group("name").lower()
-            if key in _GEOMETRY_NAMES:
-                geometry[key] = assignment.group("value")
-
+        for item in _ASSIGNMENT_RE.finditer(" ".join(tokens[6:])):
+            key = item.group("name").lower()
+            if key in _GEOMETRY_KEYS:
+                geometry[key] = item.group("value")
         instances.append({
-            "name": tokens[0],
-            "line": line_number,
-            "model": tokens[5],
-            "geometry": geometry,
-            "parse_error": None,
+            "name": tokens[0], "line": line_number, "model": tokens[5],
+            "geometry": geometry, "parse_error": None,
         })
     return instances
 
 
-def _recommended_supply_range(model_texts: Iterable[str]) -> Optional[Tuple[float, float]]]:
+def _recommended_supply_range(texts: Iterable[str]) -> Optional[Tuple[float, float]]:
     pattern = re.compile(
-        r"{(_:|recommended|raccomanded)\s|voltage\s+supply\s+range\s*: "
-ˆŠÊËWOÊÎ—
-ÊÎ——
-Š_—
-ÊJWÊ•×ÊŠK_KW8 $ÊWÊˆ‚ˆˆŠÊËWOÊÎ—
-ÊÎ——
-Š_—
-ÊJWÊ•È‹ˆ™K’QÓ“Ô‘PĞTÑKˆ
-Bˆ›Üˆ^[ˆ[Ù[İ^Î‚ˆX]ÚH]\›‹œÙX\˜Ú
-^
-BˆYˆX]Ú‚ˆİËYÚH›Ø]
-X]Ú™Ü›İ\
-JJK›Ø]
-X]Ú™Ü›İ\
-ŠJBˆYˆX]š\Ùš[š]JİÊH[™X]š\Ùš[š]JYÚ
-H[™İÈHYÚ‚ˆ™]\›ˆİËYÚˆ™]\›ˆ›Û™B‚‚™YˆÙ›Ü›X]İ[J˜[YNˆ›Ø]
-HOˆİ‚ˆ™]\›ˆˆİ˜[YH
-ˆYM‹™ßH[H‚‚‚™YˆÚXÚ×Û™]\İÛ[Ù[Êˆ™]\İÜ]ˆ
-‹ˆ[Ù[Ü]ÎˆÜ[Û˜[ÔÙ\]Y[˜ÙVÜİ—WHH›Û™Kˆİ\Wİ›ÛYÙ\ÎˆÜ[Û˜[ÑXİÜİ‹›Ø]WHH›Û™KŠHOˆXİ‚ˆˆˆÚXÚÈSÔÑ‘UËÓYØZ[œİ[Z]È[ˆ™Y™\™[˜ÙY[Ù[Ø\™Ë‚‚ˆH™]\›™Y™\ÜÛÛZ[œÈØ\›š[™ÜÈ˜]\ˆ[ˆ[ÙYZ[™Èš[\Ëˆ[Ù[ˆ[Z]È\™H™X]Y\ÈXÛ\™Y›İ[™ÎÈHÚXÚÙ\ˆÙ\È›İÛZ[H]ˆHÚ[][][Ûˆİ]ÚYH[HÚ[˜Z[‚ˆˆˆ‚ˆ]H]
-™]\İÜ]
-K™^[™\Ù\Š
-Kœ™\ÛÛ™J
-BˆYˆ]œİY™š^›İÙ\Š
-HOH‹›™]‚ˆ˜Z\ÙH˜[YQ\œ›ÜŠ›™]\İÜ]]\İÚ[È[ˆÜXÙH›™]š[HŠBˆYˆ›İ]š\×Ùš[J
-N‚ˆ˜Z\ÙHš[S›İ›İ[™\œ›ÜŠ†æWFÆ—7Bæ÷Bf÷VæC¢·F‡Ò" ¢æWFÆ—7E÷FW‡BÒ÷&VE÷FW‡B‡F‚¢W‡Æ–6—E÷F‡2ÒÆ—7B†ÖöFVÅ÷F‡2÷"µÒ¢ÖöFVÇ2Â&W6öÇfVE÷F‡2ÂVç&W6öÇfVE÷F‡2ÒöÆöEöÖöFVÇ2€¢F‚ÂæWFÆ—7E÷FW‡BÂW‡Æ–6—E÷F‡0¢¢–ç7Fæ6W2Ò÷'6UöÖ÷6fWEö–ç7Fæ6W2†æWFÆ—7E÷FW‡B¢v&æ–æw3¢Æ—7E·7G%ÒÒµĞ ¢f÷"Ö—76–ær–âVç&W6öÇfVE÷F‡3 ¢v&æ–æw2æVæB†b$ÖöFVÂÆ–'&'’6÷VÆBæ÷B&R&W6öÇfVC¢¶Ö—76–æwÒ"¢–bæ÷BÖöFVÇ3 ¢v&æ–æw2æVæB‚$æòäÔõ2õÔõ2äÔôDTÂ6&G2vW&Rf÷VæB–âF†RæWFÆ—7B÷"ÆöFVBÆ–'&&–W2" ¢f÷"–ç7Fæ6R–â–ç7Fæ6W3 ¢æÖRÒ–ç7Fæ6U²&æÖR%Ğ¢–b–ç7Fæ6U²''6UöW'&÷"%Ó ¢v&æ–æw2æVæB†b'¶æÖWÒBÆ–æR¶–ç7Fæ6U²vÆ–æRu×Ó¢¶–ç7Fæ6U²w'6UöW'&÷"u×Ò"¢6öçF–çVP¢ÖöFVÂÒÖöFVÇ2ævWB†–ç7Fæ6U²&ÖöFVÂ%Òæ66VföÆB‚’¢–bÖöFVÂ—2æöæS ¢v&æ–æw2æVæB€¢b'¶æÖWÓ¢ÖöFVÂw¶–ç7Fæ6U²vÖöFVÂu×Òrv2æ÷Bf÷VæC²rôÂ&ævRv2æ÷B6†V6¶VB ¢¢6öçF–çVP ¢&ÖWFW'2ÒÖöFVÅ²'&ÖWFW'2%Ğ ¤€€€™½È•½µ•ÑÉå}¹…µ”°µ¥¹¥µÕµ}­•ä°µ…á¥µÕµ}­•ä¥¸€ (€€€€€€€€€€€€ ‰Üˆ°€‰]5%8ˆ°€‰]5`ˆ¤°(€€€€€€€€€€€€ ‰°ˆ°€‰15%8ˆ°€‰15`ˆ¤°(€€€€€€€€¤è(€€€€€€€€€€€±¥Ñ•É…°€ô¥¹ÍÑ…¹•l‰•½µ•ÑÉä‰t¹•Ğ¡•½µ•ÑÉå}¹…µ”¤(€€€€€€€€€€€¥˜±¥Ñ•É…°¥Ì9½¹”è(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹¡˜‰í¹…µ•ôèí•½µ•ÑÉå}¹…µ”¹ÕÁÁ•È ¥ô¥Ì¹½Ğ•áÁ±¥¥Ñ±äÍÁ•¥™¥•ìÉ…¹”¡•¬Í­¥ÁÁ•ˆ¤(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”(€€€€€€€€€€€Ù…±Õ”€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡±¥Ñ•É…°¤(€€€€€€€€€€€¥˜Ù…±Õ”¥Ì9½¹”è(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹¡˜‰í¹…µ•ôèí•½µ•ÑÉå}¹…µ”¹ÕÁÁ•È ¥ôôí±¥Ñ•É…±ôœ¥Ì¹½Ğ„¹Õµ•É¥Œ±¥Ñ•É…°ìÉ…¹”¡•¬Í­¥ÁÁ•ˆ¤(€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”((€€€€€€€€€€€µ¥¹¥µÕ´€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡Á…É…µ•Ñ•ÉÌ¹•Ğ¡µ¥¹¥µÕµ}­•ä°€ˆˆ¤¤(€€€€€€€€€€€µ…á¥µÕ´€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡Á…É…µ•Ñ•ÉÌ¹•Ğ¡µ…á¥µÕµ}­•ä°€ˆˆ¤¤(€€€€€€€€€€€¥˜µ¥¹¥µÕ´¥Ì¹½Ğ9½¹”…¹Ù…±Õ”€ğµ¥¹¥µÕ´è(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹ (€€€€€€€€€€€€€€€€€€€˜‰í¹…µ•ôèí•½µ•ÑÉå}¹…µ”¹ÕÁÁ•È ¥ôõí}™½Éµ…Ñ}Õ´¡Ù…±Õ”¥ô¥Ì‰•±½Ü€ˆ(€€€€€€€€€€€€€€€€€€€˜‰íµ½‘•±l¹…µ”uô¹íµ¥¹¥µÕµ}­•åôõí}™½Éµ…Ñ}Õ´¡µ¥¹¥µÕ´¥ôˆ(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€¥˜µ…á¥µÕ´¥Ì¹½Ğ9½¹”…¹Ù…±Õ”€øµ…á¥µÕ´è(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹ (€€€€€€€€€€€€€€€€€€€˜‰í¹…µ•ôèí•½µ•ÑÉå}¹…µ”¹ÕÁÁ•È ¥ôõí}™½Éµ…Ñ}Õ´¡Ù…±Õ”¥ô•á••‘Ì€ˆ(€€€€€€€€€€€€€€€€€€€˜‰íµ½‘•±l¹…µ”uô¹íµ…á¥µÕµ}­•åôõí}™½Éµ…Ñ}Õ´¡µ…á¥µÕ´¥ôˆ(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€¥˜µ¥¹¥µÕ´¥Ì9½¹”…¹µ…á¥µÕ´¥Ì9½¹”è(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹ (€€€€€€€€€€€€€€€€€€€˜‰í¹…µ•ôèµ½‘•°€íµ½‘•±l¹…µ”uôœ‘½•Ì¹½Ğ‘•±…É”íµ¥¹¥µÕµ}­•åô½íµ…á¥µÕµ}­•åôì€ˆ(€€€€€€€€€€€€€€€€€€€˜‰í•½µ•ÑÉå}¹…µ”¹ÕÁÁ•È ¥ôÉ…¹”İ…Ì¹½Ğ¡•­•ˆ(€€€€€€€€€€€€€€€€¤((€€€€€€€™½È‘¥™™ÕÍ¥½¹}Á…É…µ•Ñ•È¥¸€ ‰Áˆ°€‰ÁÌˆ¤è(€€€€€€€€€€€±¥Ñ•É…°€ô¥¹ÍÑ…¹•l‰•½µ•ÑÉä‰t¹•Ğ¡‘¥™™ÕÍ¥½¹}Á…É…µ•Ñ•È¤(€€€€€€€€€€€¥˜±¥Ñ•É…°¥Ì9½¹”è(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹ (€€€€€€€€€€€€€€€€€€€˜‰í¹…µ•ôèí‘¥™™ÕÍ¥½¹}Á…É…µ•Ñ•È¹ÕÁÁ•È ¥ô¥Ì¹½Ğ•áÁ±¥¥Ñ±äÍÁ•¥™¥•ì€ˆ(€€€€€€€€€€€€€€€€€€€€‰¡•¬Ñ¡”Í¥µÕ±…Ñ½ÈÌ•™™•Ñ¥Ù”Ù…±Õ”…¹Ñ¡”€¹±½œİ…É¹¥¹œˆ(€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€•±Í”è(€€€€€€€€€€€€€€€¹Õµ•É¥Œ€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡±¥Ñ•É…°¤(€€€€€€€€€€€€€€€¥˜¹Õµ•É¥Œ€ôô€Àè(€€€€€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹ (€€€€€€€€€€€€€€€€€€€€€€€˜‰í¹…µ•ôèí‘¥™™ÕÍ¥½¹}Á…É…µ•Ñ•È¹ÕÁÁ•È ¥ô¥Ì•áÁ±¥¥Ñ±äé•É¼ì€ˆ(€€€€€€€€€€€€€€€€€€€€€€€€‰Ù•É¥™äÑ¡”¥¹Ñ•¹‘•‘¥™™ÕÍ¥½¸•½µ•ÑÉäˆ(€€€€€€€€€€€€€€€€€€€€¤(€€€€€€€€€€€•±¥˜¹Õµ•É¥Œ¥Ì9½¹”è(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹ (€€€€€€€€€€€€€€€€€€€˜‰í¹…µ•ôèí‘¥™™ÕÍ¥½¹}Á…É…µ•Ñ•È¹ÕÁÁ•È ¥ôôí±¥Ñ•É…±ôœ¥Ì¹½Ğ„¹Õµ•É¥Œ±¥Ñ•É…°ˆ(€€€€€€€€€€€€€€€€€€€€¤((€€€µ½‘•±}Ñ•áÑÌ€ôm}É•…‘}Ñ•áĞ¡A…Ñ ¡¥Ñ•´¤™½È¥Ñ•´¥¸É•Í½±Ù•‘}Á…Ñ¡Ít(€€€µ½‘•±}Ñ•áÑÌ¹…ÁÁ•¹¡¹•Ñ±¥ÍÑ}Ñ•áĞ¤(€€€É•½µµ•¹‘•‘}É…¹”€ô}É•½µµ•¹‘•‘}ÍÕÁÁ±å}É…¹”¡µ½‘•±}Ñ•áÑÌ¤(€€€ÍÕÁÁ±å}¡•­Ì€ômt(€€€™½ÈÍ½ÕÉ•}¹…µ”°Ù½±Ñ…”¥¸€¡ÍÕÁÁ±å}Ù½±Ñ…•Ì½Èíô¤¹¥Ñ•µÌ ¤è(€€€€€€€¹Õµ•É¥}Ù½±Ñ…”€ô™±½…Ğ¡Ù½±Ñ…”¤(€€€€€€€¥˜¹½Ğµ…Ñ ¹¥Í™¥¹¥Ñ”¡¹Õµ•É¥}Ù½±Ñ…”¤è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È¡˜‰MÕÁÁ±äÙ½±Ñ…”™½ÈíÍ½ÕÉ•}¹…µ•ôµÕÍĞ‰”™¥¹¥Ñ”ˆ¤(€€€€€€€ÍÑ…Ñ”€ô€‰¹½Ñ}¡•­•ˆ(€€€€€€€¥˜É•½µµ•¹‘•‘}É…¹”¥Ì¹½Ğ9½¹”è(€€€€€€€€€€€±½Ü°¡¥ €ôÉ•½µµ•¹‘•‘}É…¹”(€€€€€€€€€€€ÍÑ…Ñ”€ô€‰İ¥Ñ¡¥¹}É…¹”ˆ¥˜±½Ü€ğô¹Õµ•É¥}Ù½±Ñ…”€ğô¡¥ •±Í”€‰½ÕÑÍ¥‘•}É…¹”ˆ(€€€€€€€€€€€¥˜ÍÑ…Ñ”€ôô€‰½ÕÑÍ¥‘•}É…¹”ˆè(€€€€€€€€€€€€€€€İ…É¹¥¹Ì¹…ÁÁ•¹ (€€€€€€€€€€€€€€€€€€€˜‰íÍ½ÕÉ•}¹…µ•ôõí¹Õµ•É¥}Ù½±Ñ…”éôXˆ€‰¥Ì½ÕÑÍ¥‘”Ñ¡”µ½‘•°½µµ•¹ĞÌ€ˆ(€€€€€€€€€€€€€€€€€€€˜‰É•½µµ•¹‘•ÍÕÁÁ±äÉ…¹”í±½Üéô·ŠMí¡¥ éôXˆ(€€€€€€€€€€€€€€€€¤(€€€€€€€ÍÕÁÁ±å}¡•­Ì¹…ÁÁ•¹¡ì(€€€€€€€€€€€€‰Í½ÕÉ”ˆèÍ½ÕÉ•}¹…µ”°(€€€€€€€€€€€€‰Ù½±Ñ…•}Xˆè¹Õµ•É¥}Ù½±Ñ…”°(€€€€€€€€€€€€‰ÍÑ…ÑÕÌˆèÍÑ…Ñ”°(€€€€€€€ô¤((€€€½ÕÑ}½™}É…¹”€ô…¹ä (€€€€€€€€ˆ¥Ì‰•±½Ü€ˆ¥¸İ…É¹¥¹œ½È€ˆ•á••‘Ìˆ¥¸İ…É¹¥¹œ™½Èİ…É¹¥¹œ¥¸İ…É¹¥¹Ì(€€€€¤(€€€É•ÑÕÉ¸ì(€€€€€€€€‰¹•Ñ±¥ÍÑ}Á…Ñ ˆèÍÑÈ¡Á…Ñ ¤°(€€€€€€€€‰µ½‘•±}™¥±•ÌˆèÉ•Í½±Ù•‘}Á…Ñ¡Ì°(€€€€€€€€‰µ½‘•±Ìˆèµ½‘•±Ì°(€€€€€€€€‰¥¹ÍÑ…¹•Ìˆè¥¹ÍÑ…¹•Ì°(€€€€€€€€‰İ…É¹¥¹Ìˆèİ…É¹¥¹Ì°(€€€€€€€€‰½ÕÑ}½™}É…¹”ˆè½ÕÑ}½™}É…¹”°(€€€€€€€€‰É•½µµ•¹‘•‘}ÍÕÁÁ±å}É…¹•}XˆèÉ•½µµ•¹‘•‘}É…¹”°(€€€€€€€€‰ÍÕÁÁ±å}¡•­ÌˆèÍÕÁÁ±å}¡•­Ì°(€€€€€€€€‰ÍÕµµ…Éäˆèì(€€€€€€€€€€€€‰µ½Í™•Ñ}½Õ¹Ğˆè±•¸¡¥¹ÍÑ…¹•Ì¤°(€€€€€€€€€€€€‰µ½‘•±}½Õ¹Ğˆè±•¸¡µ½‘•±Ì¤°(€€€€€€€€€€€€‰İ…É¹¥¹}½Õ¹Ğˆè±•¸¡İ…É¹¥¹Ì¤°(€€€€€€€ô°(€€€ô(()‘•˜}Á…ÉÍ•}ÍÕÁÁ±å}…ÉÕµ•¹ÑÌ¡¥Ñ•µÌèM•ÅÕ•¹•mÍÑÉt¤€´ø¥ÑmÍÑÈ°™±½…Ñtè(€€€ÍÕÁÁ±¥•Ì€ôíô(€€€™½È¥Ñ•´¥¸¥Ñ•µÌè(€€€€€€€µ…Ñ €ôÉ”¹™Õ±±µ…Ñ  (€€€€€€€€€€€Èˆ ı@ñ¹…µ”ùmµi„µéumµi„µèÀ´åt¨¤ô ı@ñÙ…±Õ”ø¸¬¤ˆ°¥Ñ•´(€€€€€€€€¤(€€€€€€€¥˜µ…Ñ ¥Ì9½¹”è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È¡˜‰%¹Ù…±¥€´µÍÕÁÁ±äí¥Ñ•´…Éôì•áÁ•Ñ•YôÄ¸Ôˆ¤(€€€€€€€¹…µ”€ôµ…Ñ ¹É½ÕÀ ‰¹…µ”ˆ¤(€€€€€€€¥˜¹…µ”¥¸ÍÕÁÁ±¥•Ìè(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È¡˜‰ÕÁ±¥…Ñ”ÍÕÁÁ±äÍ½ÕÉ”èí¹…µ•ôˆ¤(€€€€€€€Ù…±Õ”€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡µ…Ñ ¹É½ÕÀ ‰Ù…±Õ”ˆ¤¤(€€€€€€€¥˜Ù…±Õ”¥Ì9½¹”è(€€€€€€€€€€€É…¥Í”Y…±Õ•ÉÉ½È¡˜‰%¹Ù…±¥¹Õµ•É¥ŒÍÕÁÁ±äÙ½±Ñ…”¥¸€´µÍÕÁÁ±äí¥Ñ•´…Éôˆ¤(€€€€€€€ÍÕÁÁ±¥•Ím¹…µ•t€ôÙ…±Õ”(€€€É•ÑÕÉ¸ÍÕÁÁ±¥•Ì(()‘•˜µ…¥¸¡…ÉØè=ÁÑ¥½¹…±mM•ÅÕ•¹•mÍÑÉut€ô9½¹”¤€´ø¥¹Ğè(€€€Á…ÉÍ•È€ô…ÉÁ…ÉÍ”¹ÉÕµ•¹ÑA…ÉÍ•È (€€€€€€€‘•ÍÉ¥ÁÑ¥½¸ô‰¡•¬5=MP•½µ•ÑÉä……¥¹ÍĞ1QÍÁ¥”µ½‘•°µ…É±¥µ¥ÑÌ€¡É•…µ½¹±ä¤¸ˆ(€€€€¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ ‰¹•Ñ±¥ÍĞˆ°¡•±Àô‰1QÍÁ¥”€¹¹•Ğ™¥±”Ñ¼¥¹ÍÁ•Ğˆ¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ (€€€€€€€€ˆ´µµ½‘•°ˆ°…Ñ¥½¸ô‰…ÁÁ•¹ˆ°‘•™…Õ±Ğõmt°µ•Ñ…Ù…Èô‰AQ ˆ°(€€€€€€€¡•±Àô‰‘‘¥Ñ¥½¹…°µ½‘•°±¥‰É…ÉäÑ¼¥¹ÍÁ•Ğìµ…ä‰”É•Á•…Ñ•ˆ°(€€€€¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ (€€€€€€€€ˆ´µÍÕÁÁ±äˆ°…Ñ¥½¸ô‰…ÁÁ•¹ˆ°‘•™…Õ±Ğõmt°µ•Ñ…Ù…Èô‰M=UIõY=1Qˆ°(€€€€€€€¡•±Àô‰MÕÁÁ±äÙ½±Ñ…”Ñ¼½µÁ…É”İ¥Ñ „‘•±…É•É•½µµ•¹‘•É…¹”°”¹œ¸YôÄ¸Ôˆ°(€€€€¤(€€€Á…ÉÍ•È¹…‘‘}…ÉÕµ•¹Ğ (€€€€€€€€ˆ´µÍÑÉ¥Ğˆ°…Ñ¥½¸ô‰ÍÑ½É•}ÑÉÕ”ˆ°(€€€€€€€¡•±Àô‰I•ÑÕÉ¸•á¥Ğ½‘”€Èİ¡•¸„5=MP\½0¥Ì½ÕÑÍ¥‘”„‘•±…É•µ½‘•°‰½Õ¹ˆ°(€€€€¤(€€€…ÉÌ€ôÁ…ÉÍ•È¹Á…ÉÍ•}…ÉÌ¡…ÉØ¤((€€€ÑÉäè(€€€€€€€ÍÕÁÁ±¥•Ì€ô}Á…ÉÍ•}ÍÕÁÁ±å}…ÉÕµ•¹ÑÌ¡…ÉÌ¹ÍÕÁÁ±ä¤(€€€€€€€É•Á½ÉĞ€ô¡•­}¹•Ñ±¥ÍÑ}µ½‘•±Ì (€€€€€€€€€€€…ÉÌ¹¹•Ñ±¥ÍĞ°(€€€€€€€€€€€µ½‘•±}Á…Ñ¡Ìõ…ÉÌ¹µ½‘•°°(€€€€€€€€€€€ÍÕÁÁ±å}Ù½±Ñ…•ÌõÍÕÁÁ±¥•Ì°(€€€€€€€€¤(€€€•á•ÁĞ€¡=MÉÉ½È°Y…±Õ•ÉÉ½È¤…Ì•áŒè(€€€€€€€ÁÉ¥¹Ğ¡˜‰5½‘•°¡•¬™…¥±•èí•áôˆ°™¥±”õÍåÌ¹ÍÑ‘•ÉÈ¤(€€€€€€€É•ÑÕÉ¸€Ä((€€€ÁÉ¥¹Ğ¡˜‰9•Ñ±¥ÍĞèíÉ•Á½ÉÑl¹•Ñ±¥ÍÑ}Á…Ñ uôˆ¤(€€€¥˜É•Á½ÉÑl‰µ½‘•±}™¥±•Ì‰tè(€€€€€€€ÁÉ¥¹Ğ ‰5½‘•°™¥±”¡Ì¤èˆ¤(€€€€€€€™½Èµ½‘•±}™¥±”¥¸É•Á½ÉÑl‰µ½‘•±}™¥±•Ì‰tè(€€€€€€€€€€€ÁÉ¥¹Ğ¡˜ˆ€íµ½‘•±}™¥±•ôˆ¤(€€€ÁÉ¥¹Ğ (€€€€€€€˜‰½Õ¹íÉ•Á½ÉÑlÍÕµµ…Éäulµ½Í™•Ñ}½Õ¹Ğuô5=MP¥¹ÍÑ…¹”¡Ì¤…¹€ˆ(€€€€€€€˜‰íÉ•Á½ÉÑlÍÕµµ…Éäulµ½‘•±}½Õ¹Ğuô95=L½A5=Lµ½‘•°…É¡Ì¤¸ˆ(€€€€¤(€€€™½Èµ½‘•°¥¸Í½ÉÑ•¡É•Á½ÉÑl‰µ½‘•±Ì‰t¹Ù…±Õ•Ì ¤°­•äõ±…µ‰‘„¥Ñ•´è¥Ñ•µl‰¹…µ”‰t¹…Í•™½± ¤¤è(€€€€€€€Á…É…µ•Ñ•ÉÌ€ôµ½‘•±l‰Á…É…µ•Ñ•ÉÌ‰t(€€€€€€€Ù•ÉÍ¥½¸€ôÁ…É…µ•Ñ•ÉÌ¹•Ğ ‰YIM%=8ˆ°€‰¹½Ğ‘•±…É•ˆ¤(€€€€€€€İ¥‘Ñ¡}µ¥¸€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡Á…É…µ•Ñ•ÉÌ¹•Ğ ‰]5%8ˆ°€ˆˆ¤¤(€€€€€€€İ¥‘Ñ¡}µ…à€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡Á…É…µ•Ñ•ÉÌ¹•Ğ ‰]5`ˆ°€ˆˆ¤¤(€€€€€€€±•¹Ñ¡}µ¥¸€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡Á…É…µ•Ñ•ÉÌ¹•Ğ ‰15%8ˆ°€ˆˆ¤¤(€€€€€€€±•¹Ñ¡}µ…à€ôÁ…ÉÍ•}ÍÁ¥•}¹Õµ‰•È¡Á…É…µ•Ñ•ÉÌ¹•Ğ ‰15`ˆ°€ˆˆ¤¤(€€€€€€€İ¥‘Ñ¡}É…¹”€ô€ (€€€€€€€€€€€˜‰í}™½Éµ…Ñ}Õ´¡İ¥‘Ñ¡}µ¥¸¥ôƒŠMyí}™½Éµ…Ñ}Õ´¡İ¥‘Ñ¡}µ…à¥ôˆ(€€€€€€€€€€€¥˜İ¥‘Ñ¡}µ¥¸¥Ì¹½Ğ9½¹”…¹İ¥‘Ñ¡}µ…à¥Ì¹½Ğ9½¹”•±Í”€‰¹½Ğ™Õ±±ä‘•±…É•ˆ(€€€€€€€€¤(€€€€€€€±•¹Ñ¡}É…¹”€ô€ (€€€€€€€€€€€˜‰í}™½Éµ…Ñ}Õ´¡±•¹Ñ¡}µ¥¸¥ôƒŠMyí}™½Éµ…Ñ}Õ´¡±•¹Ñ¡}µ…à¥ôˆ(€€€€€€€€€€€¥˜±•¹Ñ¡}µ¥¸¥Ì¹½Ğ9½¹”…¹±•¹Ñ¡}µ…à¥Ì¹½Ğ9½¹”•±Í”€‰¹½Ğ™Õ±±ä‘•±…É•ˆ(€€€€€€€€¤(€€€€€€€ÁÉ¥¹Ğ (€€€€€€€€€€€˜ˆ€íµ½‘•±l¹…µ”uô€¡íµ½‘•±l­¥¹œt¹ÕÁÁ•È ¥ô¤èYIM%=8õíÙ•ÉÍ¥½¹ô°€ˆ(€€€€€€€€€€€˜‰\õíİ¥‘Ñ¡}É…¹•ô°0õí±•¹Ñ¡}É…¹•ôˆ(€€€€€€€€¤(€€€¥˜É•Á½ÉÑl‰É•½µµ•¹‘•‘}ÍÕÁÁ±å}É…¹•}X‰t¥Ì¹½Ğ9½¹”è(€€€€€€€±½Ü°¡¥ €ôÉ•Á½ÉÑl‰É•½µµ•¹‘•‘}ÍÕÁÁ±å}É…¹•}X‰t(€€€€€€€ÁÉ¥¹Ğ¡˜‰5½‘•°½µµ•¹ĞÍÕÁÁ±äÉ…¹”èí±½Üé÷ŠMí¡¥ éôXˆ¤(€€€™½È¥Ñ•´¥¸É•Á½ÉÑl‰ÍÕÁÁ±å}¡•­Ì‰tè(€€€€€€€ÁÉ¥¹Ğ (€€€€€€€€€€€˜‰MÕÁÁ±äí¥Ñ•µl‰Í½ÕÉ”‰uôõí¥Ñ•µlÙ½±Ñ…•}XtèôXè€ˆ(€€€€€€€€€€€˜‰í¥Ñ•µlÍÑ…ÑÕÌt¹É•Á±…” |œ°€œ€œ¥ôˆ(€€€€€€€€¤((€€€¥˜É•Á½ÉÑl"warnings"]:
+        r"(?:recommended|raccomanded)\s+voltage\s+supply\s+range\s*:\s*"
+        r"([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*V?\s*--\s*"
+        r"([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*V?",
+        re.IGNORECASE,
+    )
+    for text in texts:
+        match = pattern.search(text)
+        if match:
+            low, high = float(match.group(1)), float(match.group(2))
+            if math.isfinite(low) and math.isfinite(high) and low <= high:
+                return low, high
+    return None
+
+
+def _um(value: float) -> str:
+    return f"{value * 1e6:.6g} um"
+
+
+def check_netlist_models(netlist_path, *, model_paths: Optional[Sequence[str]] = None,
+                         supply_voltages: Optional[Dict[str, float]] = None) -> dict:
+    """Compare MOSFET W/L literals with bounds declared by their model cards.
+
+    The report is advisory. A value outside a declared bound is not a claim
+    that LTspice will refuse to simulate; no input file is modified.
+    """
+    path = Path(netlist_path).expanduser().resolve()
+    if path.suffix.lower() != ".net":
+        raise ValueError("netlist_path must point to an LTspice .net file")
+    if not path.is_file():
+        raise FileNotFoundError(f"Netlist not found: {path}")
+
+    netlist_text = _read_text(path)
+    models, library_paths, unresolved = _load_models(path, netlist_text, model_paths or [])
+    instances = _parse_mosfet_instances(netlist_text)
+    warnings: List[str] = []
+    out_of_range = False
+
+    for reference in unresolved:
+        warnings.append(f"Model library could not be resolved: {reference}")
+    if not models:
+        warnings.append("No NMOS/PMOS .MODEL cards were found in the netlist or loaded libraries")
+
+    for instance in instances:
+        name = instance["name"]
+        if instance["parse_error"]:
+            warnings.append(f"{name} at line {instance['line']}: {instance['parse_error']}")
+            continue
+        model = models.get(instance["model"].casefold())
+        if model is None:
+            warnings.append(f"{name}: model '{instance['model']}' was not found; W/L range was not checked")
+            continue
+
+        parameters = model["parameters"]
+        for geometry, lower_key, upper_key in (
+            ("w", "WMIN", "WMAX"), ("l", "LMIN", "LMAX")
+        ):
+            literal = instance["geometry"].get(geometry)
+            if literal is None:
+                warnings.append(f"{name}: {geometry.upper()} is not specified; range check skipped")
+                continue
+            value = parse_spice_number(literal)
+            if value is None:
+                warnings.append(f"{name}: {geometry.upper()}='{literal}' is not numeric; range check skipped")
+                continue
+            lower = parse_spice_number(parameters.get(lower_key, ""))
+            upper = parse_spice_number(parameters.get(upper_key, ""))
+            if lower is not None and value < lower:
+                warnings.append(
+                    f"{name}: {geometry.upper()}={_um(value)} is below "
+                    f"{model['name']}.{lower_key}={_um(lower)}"
+                )
+                out_of_range = True
+            if upper is not None and value > upper:
+                warnings.append(
+                    f"{name}: {geometry.upper()}={_um(value)} exceeds "
+                    f"{model['name']}.{upper_key}={_um(upper)}"
+                )
+                out_of_range = True
+            if lower is None and upper is None:
+                warnings.append(f"{name}: model '{model['name']}' does not declare {lower_key}/{upper_key}")
+
+        for key in ("pd", "ps"):
+            literal = instance["geometry"].get(key)
+            if literal is None:
+                warnings.append(
+                    f"{name}: {key.upper()} is not specified; check the simulator's effective value and .log warning"
+                )
+            elif parse_spice_number(literal) == 0:
+                warnings.append(f"{name}: {key.upper()} is explicitly zero; verify diffusion geometry")
+            elif parse_spice_number(literal) is None:
+                warnings.append(f"{name}: {key.upper()}='{literal}' is not numeric")
+
+    texts = [_read_text(item) for item in library_paths] + [netlist_text]
+    recommended_range = _recommended_supply_range(texts)
+    supply_checks = []
+    for source_name, voltage in (supply_voltages or {}).items():
+        numeric = float(voltage)
+        if not math.isfinite(numeric):
+            raise ValueError(f"Supply voltage for {source_name} must be finite")
+        state = "not_checked"
+        if recommended_range is not None:
+            low, high = recommended_range
+            state = "within_range" if low <= numeric <= high else "outside_range"
+            if state == "outside_range":
+                warnings.append(
+                    f"{source_name}={numeric:g} V is outside the model comment's "
+                    f"recommended supply range {low:g}â€“{high:g} V"
+                )
+        supply_checks.append({"source": source_name, "voltage_V": numeric, "status": state})
+
+    return {
+        "netlist_path": str(path),
+        "model_files": [str(item) for item in library_paths],
+        "models": models,
+        "instances": instances,
+        "warnings": warnings,
+        "out_of_range": out_of_range,
+        "recommended_supply_range_V": recommended_range,
+        "supply_checks": supply_checks,
+        "summary": {
+            "mosfet_count": len(instances),
+            "model_count": len(models),
+            "warning_count": len(warnings),
+        },
+    }
+
+
+def _parse_supplies(items: Sequence[str]) -> Dict[str, float]:
+    supplies = {}
+    for item in items:
+        match = re.fullmatch(r"(?P<name>[A-Za-z][A-Za-z0-9_]*)=(?P<value>.+)", item)
+        if match is None:
+            raise ValueError(f"Invalid --supply {item!r}; expected VDD=1.5")
+        name = match.group("name")
+        if name in supplies:
+            raise ValueError(f"Duplicate supply source: {name}")
+        value = parse_spice_number(match.group("value"))
+        if value is None:
+            raise ValueError(f"Invalid numeric supply voltage in --supply {item!r}")
+        supplies[name] = value
+    return supplies
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Read-only check of MOSFET geometry against LTspice model-card declarations."
+    )
+    parser.add_argument("netlist", help="LTspice .net file")
+    parser.add_argument("--model", action="append", default=[], metavar="PATH",
+                        help="Additional model file; may be repeated")
+    parser.add_argument("--supply", action="append", default=[], metavar="SOURCE=VOLTAGE",
+                        help="Supply to compare with a stated model-file range, e.g. VDD=1.5")
+    parser.add_argument("--strict", action="store_true",
+                        help="Return exit code 2 if a MOSFET W/L is outside a declared bound")
+    args = parser.parse_args(argv)
+
+    try:
+        report = check_netlist_models(
+            args.netlist,
+            model_paths=args.model,
+            supply_voltages=_parse_supplies(args.supply),
+        )
+    except (OSError, ValueError) as exc:
+        print(f"Model check failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Netlist: {report['netlist_path']}")
+    for library in report["model_files"]:
+        print(f"Model file: {library}")
+    print(
+        f"Found {report['summary']['mosfet_count']} MOSFET instance(s) and "
+        f"{report['summary']['model_count']} NMOS/PMOS model card(s)."
+    )
+    for model in sorted(report["models"].values(), key=lambda item: item["name"].casefold()):
+        p = model["parameters"]
+        def bound(key):
+            value = parse_spice_number(p.get(key, ""))
+            return _um(value) if value is not None else "n/a"
+        print(
+            f"  {model['name']} ({model['kind'].upper()}): VERSION={p.get('VERSION', 'n/a')}, "
+            f"W={bound('WMIN')}â€“{bound('WMAX')}, L={bound('LMIN')}â€“{bound('LMAX')}"
+        )
+    if report["recommended_supply_range_V"] is not None:
+        low, high = report["recommended_supply_range_V"]
+        print(f"Model-file comment supply range: {low:g}â€“{high:g} V")
+    for item in report["supply_checks"]:
+        print(f"Supply {item['source']}={item['voltage_V']:g} V: {item['status'].replace('_', ' ')}")
+    if report["warnings"]:
         print("\nWarnings:")
         for warning in report["warnings"]:
             print(f"  - {warning}")
     else:
         print("No model-range or geometry warnings found.")
-
     print(f"\nWarning count: {report['summary']['warning_count']}")
     if args.strict and report["out_of_range"]:
-        print("Strict check failed: one or more W/L values are outside declared model bounds.", file=sys.stderr)
+        print("Strict check failed: MOSFET W/L is outside declared model bounds.", file=sys.stderr)
         return 2
     return 0
 

@@ -135,7 +135,7 @@ class TestModelChecker(unittest.TestCase):
         )
         report = check_netlist_models(net)
         self.assertFalse(report["out_of_range"])
-        self.assertTrue(any("W='{WWAL}' is not a numeric literal" in x for x in report["warnings"]))
+        self.assertTrue(any("W='{WVAL}' is not numeric" in x for x in report["warnings"]))
 
     def test_warns_when_model_is_not_found(self):
         net = self.write_netlist("M1 d g s b missing_model L=1u W=1u\n.end\n")
