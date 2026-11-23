@@ -176,7 +176,10 @@ class TestReportAndConfig(unittest.TestCase):
             [candidate("6u", 12.9e6, 47.7, 26.9),
              candidate("9u", 13.48e6, 46.2, 27.2),
              candidate("10u", 13.61e6, 45.9, 27.3)],
-            {"phase_margin_deg": {"min": 46}},
+            {
+                "phase_margin_deg": {"min": 46},
+                "ugbw_Hz": {"min": 13e6},
+            },
             {"metric": "ugbw_Hz", "direction": "maximize"},
         )
         report = render_markdown_report(
@@ -191,6 +194,14 @@ class TestReportAndConfig(unittest.TestCase):
         self.assertIn("finite one-dimensional grid search", report)
         self.assertIn("not a claim of a continuous or global optimum", report)
         self.assertIn("10u", report)
+        table_header = next(
+            line for line in report.splitlines()
+            if line.startswith("| Candidate |")
+        )
+        self.assertIn("ugbw_Hz (objective; constraint)", table_header)
+        self.assertEqual(table_header.count("ugbw_Hz"), 1)
+        self.assertIn("12.9000 MHz (fail)", report)
+        self.assertIn("13.4800 MHz (pass)", report)
 
     def test_end_to_end_writes_csv_reference_and_reports_with_fake_sweep(self):
         config = self.base_config()
