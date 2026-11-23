@@ -1,6 +1,6 @@
 # ltspice-analog-tools
 
-**Release target: 0.2.0 — AC/DC Analysis**
+**Development target: 1.0.0 — Design Automation**
 
 A lightweight Python toolkit for extracting and analysing simulation results produced by LTspice.
 
@@ -13,6 +13,7 @@ A lightweight Python toolkit for extracting and analysing simulation results pro
 - Parse BSIM3 MOSFET operating-point tables from LTspice SPICE Output Log files.
 - Parse real-valued, single-point Operating Point RAW files to extract node voltages, component currents and MOSFET terminal currents.
 - Calculate quiescent power for explicitly selected supply voltage sources.
+- Run a finite W/L candidate grid, apply numeric performance constraints, rank feasible candidates and write Markdown/JSON reports.
 
 ## Supported input scope
 
@@ -47,7 +48,7 @@ Run the complete test suite from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-The project regression suite currently contains 91 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and AC/DC sweep orchestration. Run the full suite with the command above.
+The existing regression suite contained 91 tests before the design-optimizer addition. The optimizer adds 18 tests for constraint validation, candidate selection, configuration handling and report generation. Run the full suite with the command above; the expanded suite has not yet been run on the target Mac.
 
 ## Transient example
 
@@ -292,3 +293,28 @@ model-file's stated recommendation, not as a complete electrical reliability
 or operating-area guarantee. The checker does not edit source netlists or
 model libraries, infer diffusion geometry, or certify compatibility between
 a model-card VERSION and an installed LTspice version.
+
+
+## v1.0 development: constraint-based design optimization
+
+The first design optimizer is in src/design_optimizer.py. It runs the existing
+matched AC/DC geometry sweep over a finite list of values supplied in a JSON
+configuration, applies inclusive min/max constraints to measured result fields,
+selects the best feasible candidate for one objective, and writes Markdown and
+JSON reports alongside the sweep CSV.
+
+This initial release supports one swept geometry parameter (W or L) per run.
+Multiple selected MOSFETs share the same value. It does not perform continuous,
+adaptive or multi-parameter optimization.
+
+See docs/design-automation-v1.0.md and
+examples/design_optimization.example.json for the configuration format and
+usage. Run it from the repository root:
+
+~~~bash
+python3 -m src.design_optimizer examples/design_optimization.example.json
+~~~
+
+Edit source_netlist in the example JSON to the path of your local LTspice AC
+.net file. The illustrative constraints in that example are not course
+specifications; replace them with the requirements for the circuit under test.
