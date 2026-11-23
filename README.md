@@ -1,5 +1,7 @@
 # ltspice-analog-tools
 
+[![Python tests](https://github.com/Marumo66/ltspice-analog-tools/actions/workflows/python-tests.yml/badge.svg?branch=main)](https://github.com/Marumo66/ltspice-analog-tools/actions/workflows/python-tests.yml)
+
 **Version: 1.0.0-rc.1**
 
 Python tools for running LTspice netlists, sweeping MOSFET geometry, analysing AC/DC results, checking model declarations and selecting a design from user-defined constraints.
