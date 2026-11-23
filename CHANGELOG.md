@@ -1,18 +1,18 @@
 ## Unreleased — v1.0 development
 
 ### Added
-- Initial `LTspiceRunner` for existing `.net` files using the `-b -Run` command.
+- Initial `LTspiceRunner` for existing `.net` files.
+- Platform-specific batch command construction: macOS uses `-b <file.net>`; Windows/Wine uses `-b -Run <file.net>`.
+- macOS process launch redirects stderr to stdout to avoid the LTspice 26.0.2 shutdown issue reported for separate standard streams.
 - LTspice executable discovery through `LTSPICE_EXECUTABLE`, common install paths and macOS Spotlight.
 - Timeout, process error and fresh `.raw` / `.log` output checks.
-- Ten unit tests for command construction and runner failure/success paths.
+- Platform-specific runner unit tests.
 
 ### Not included yet
 - Schematic-to-netlist generation.
 - Netlist parameter editing.
 - Parameter sweeps, design constraints or optimisation.
 - End-to-end verification against the user's installed LTspice application.
-
-# Changelog
 
 ## 0.2.0 — AC/DC Analysis
 

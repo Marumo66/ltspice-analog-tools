@@ -132,8 +132,10 @@ The `tests/fixtures` directory contains regression data from a two-stage CMOS op
 ## v1.0 development: LTspice batch runner
 
 The initial runner is in `src/ltspice_runner.py`. It accepts an existing
-`.net` file, invokes LTspice with `-b -Run`, and checks that fresh, non-empty
-`.raw` and `.log` files were written next to the netlist.
+`.net` file and checks that fresh, non-empty `.raw` and `.log` files were
+written next to the netlist. On native macOS it invokes LTspice with
+`-b <file.net>` and redirects stderr to stdout; Windows/Wine uses
+`-b -Run <file.net>`.
 
 Example:
 

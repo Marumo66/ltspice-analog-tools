@@ -26,11 +26,18 @@ class TestLTspiceRunner(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def test_builds_batch_command_for_netlist(self):
+    @patch("src.ltspice_runner.platform.system", return_value="Windows")
+    def test_builds_windows_batch_command_for_netlist(self, mocked_system):
         command = self.runner.build_command(self.netlist)
         self.assertEqual(command[0], str(self.executable.resolve()))
         self.assertEqual(command[1:3], ("-b", "-Run"))
         self.assertEqual(command[3], str(self.netlist.resolve()))
+
+    @patch("src.ltspice_runner.platform.system", return_value="Darwin")
+    def test_builds_macos_batch_command_for_netlist(self, mocked_system):
+        command = self.runner.build_command(self.netlist)
+        self.assertEqual(command[0], str(self.executable.resolve()))
+        self.assertEqual(command[1:], ("-b", str(self.netlist.resolve())))
 
     def test_rejects_schematic_input(self):
         schematic = self.root / "opamp.asc"
@@ -42,24 +49,28 @@ class TestLTspiceRunner(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             self.runner.build_command(self.root / "missing.net")
 
+    @patch("src.ltspice_runner.platform.system", return_value="Darwin")
     @patch("src.ltspice_runner.subprocess.run")
-    def test_run_returns_fresh_raw_and_log(self, mocked_run):
+    def test_run_returns_fresh_raw_and_log(self, mocked_run, mocked_system):
         def simulate(command, **kwargs):
             self.netlist.with_suffix(".raw").write_bytes(b"raw result")
             self.netlist.with_suffix(".log").write_text("simulation ok\n", encoding="utf-8")
-            return subprocess.CompletedProcess(command, 0, "batch done", "")
+            return subprocess.CompletedProcess(command, 0, None, None)
 
         mocked_run.side_effect = simulate
         result = self.runner.run_netlist(self.netlist)
         self.assertTrue(result.raw_path.is_file())
         self.assertTrue(result.log_path.is_file())
         self.assertEqual(result.return_code, 0)
-        self.assertEqual(result.stdout, "batch done")
+        self.assertEqual(result.stdout, "")
         mocked_run.assert_called_once()
         self.assertEqual(
             Path(mocked_run.call_args.kwargs["cwd"]),
             self.root.resolve(),
         )
+        self.assertIs(mocked_run.call_args.kwargs["stderr"], subprocess.STDOUT)
+        self.assertNotIn("capture_output", mocked_run.call_args.kwargs)
+        self.assertNotIn("stdout", mocked_run.call_args.kwargs)
 
     @patch("src.ltspice_runner.subprocess.run")
     def test_rejects_zero_exit_without_output_files(self, mocked_run):

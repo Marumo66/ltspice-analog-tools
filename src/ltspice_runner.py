@@ -139,6 +139,10 @@ class LTspiceRunner:
             raise ValueError("LTspiceRunner currently accepts .net files only")
         if not netlist.is_file():
             raise FileNotFoundError(f"Netlist not found: {netlist}")
+        if platform.system() == "Darwin":
+            # Native LTspice for macOS batch-runs an existing .net file with -b.
+            return (str(self.executable), "-b", str(netlist))
+        # Windows / Wine LTspice uses -Run to start the simulation.
         return (str(self.executable), "-b", "-Run", str(netlist))
 
     def run_netlist(self, netlist_path: os.PathLike) -> SimulationResult:
@@ -158,15 +162,24 @@ class LTspiceRunner:
         }
 
         try:
-            completed = subprocess.run(
-                list(command),
-                cwd=str(netlist.parent),
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=self.timeout,
-                check=False,
-            )
+            run_kwargs = {
+                "cwd": str(netlist.parent),
+                "timeout": self.timeout,
+                "check": False,
+            }
+            if platform.system() == "Darwin":
+                # LTspice 26.0.2 for macOS can crash on exit if stdout and
+                # stderr use separate file descriptors. This is equivalent
+                # to redirecting stderr to stdout in the launching shell.
+                run_kwargs["stderr"] = subprocess.STDOUT
+            else:
+                run_kwargs.update({
+                    "capture_output": True,
+                    "text": True,
+                    "errors": "replace",
+                })
+
+            completed = subprocess.run(list(command), **run_kwargs)
         except subprocess.TimeoutExpired as exc:
             raise LTspiceRunnerError(
                 f"LTspice did not finish within {self.timeout:g} seconds: {netlist}"
