@@ -47,7 +47,7 @@ Run the complete test suite from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-The project regression suite currently contains 66 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and DC/AC sweep orchestration. Run the full suite with the command above.
+The project regression suite currently contains 76 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and AC/DC sweep orchestration. Run the full suite with the command above.
 
 ## Transient example
 
@@ -229,3 +229,33 @@ count, and DC MOSFET operating-point values reported in the LTspice log.
 The AC RAW currents are small-signal complex phasors. They must not be used
 as DC supply currents for quiescent power calculations. DC supply power
 requires a separate Operating Point RAW result or a separate `.op` run.
+
+
+## v1.0 development: matched AC/DC geometry sweep
+
+The unified sweep runner is in `src/parameter_sweep_unified.py`. It accepts
+one AC `.net` source as the circuit template. For every requested geometry
+it writes two siblings from the same edited netlist: an AC version retaining
+the active `.ac` directive, and an Operating Point version with that
+directive commented out and `.op` enabled.
+
+Example — sweep the symmetric M1/M2 input pair:
+
+```bash
+python3 -m src.parameter_sweep_unified two_stage_opamp_CC1P_acSweep.net \
+  --device M1 --device M2 \
+  --parameter w \
+  --values 10u 12u 16u \
+  --supply VDD=1.5
+```
+
+Each parameter point runs two LTspice simulations. The summary CSV combines
+AC low-frequency loop gain, UGBW and phase margin with DC node voltages,
+MOSFET operating-point values, selected-supply current and delivered power,
+and convergence/warning metadata from both logs.
+
+Using a single AC netlist as the template keeps the circuit topology, model
+references, device geometry and DC bias sources identical between the AC and
+Operating Point runs. The DC supply power is calculated from the separate
+Operating Point RAW file; AC RAW current traces are small-signal phasors and
+are not used as quiescent supply current.

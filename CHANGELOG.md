@@ -5,8 +5,9 @@
 - MOSFET geometry controller for updating selected device W/L values in a copied netlist.
 - DC geometry sweep runner for repeated W/L variants, LTspice execution and CSV result collection.
 - AC geometry sweep runner with complex RAW export and loop-gain, UGBW and phase-margin calculation.
-- AC sweep results include DC MOSFET operating-point values and convergence/warning metadata from the simulation log.
-- Unit tests for geometry updates and AC/DC sweep orchestration.
+- Matched AC/DC sweep runner deriving AC and Operating Point netlists from one source to keep bias conditions consistent.
+- Unified CSV results with AC loop-gain metrics, DC node voltages, MOSFET operating points and explicitly selected supply power.
+- Unit tests for geometry updates and standalone/unified AC/DC sweep orchestration.
 
 ### Not included yet
 - Automatic schematic-to-netlist generation.
