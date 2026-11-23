@@ -1,6 +1,6 @@
 # ltspice-analog-tools
 
-**Development target: 1.0.0 — Design Automation**
+**Project status: v0.1 and v0.2 core capabilities implemented; v1.0 Design Automation in development.**
 
 A lightweight Python toolkit for extracting and analysing simulation results produced by LTspice.
 
