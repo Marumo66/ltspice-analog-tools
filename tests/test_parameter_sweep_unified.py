@@ -19,7 +19,7 @@ VTEST out nfb 0 AC 1 0
 VINP N003 0 0.45 AC 0
 VDD N001 0 1.5
 .include cmos130.lib
-.op
+* .op
 .ac dec 100 1 1Meg
 .end
 """
