@@ -106,3 +106,18 @@ python3 -m unittest discover -s tests -v
 ~~~
 
 For a real smoke test, run the example configuration against a local copy of the in-range AC netlist and inspect all three output artifacts plus the LTspice logs.
+
+## Release-candidate validation record
+
+The v1.0.0-rc.1 workflow was exercised on the project owner's macOS system with LTspice 26.0.2 using the course CMOS130 two-stage op-amp netlist:
+
+- Five M1/M2 width candidates: 6, 7, 8, 9 and 10 µm.
+- Ten LTspice simulations: one AC and one Operating Point run per candidate.
+- Configured constraints: phase margin ≥ 46°, UGBW ≥ 13 MHz and selected VDD power ≤ 30 µW.
+- Three candidates satisfied all constraints.
+- The optimizer selected 9 µm with UGBW 13.4876 MHz, phase margin 46.256° and selected VDD delivered power 27.2773 µW.
+- The project owner's local regression run passed all 109 tests.
+
+The checked AC and Operating Point logs reported Direct Newton failure followed by successful Gmin stepping. The reports retain the convergence method and warning counts. The model's BSIM3 VERSION and PD/PS warnings were not changed as part of this validation. See [the detailed sweep record](in-range-sweep-summary.md).
+
+GitHub Actions validation is tracked separately from the local test and LTspice smoke-test records. A successful local run does not substitute for a green CI run on every configured Python version.
