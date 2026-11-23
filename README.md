@@ -47,7 +47,7 @@ Run the complete test suite from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-The project regression suite currently contains 89 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and AC/DC sweep orchestration. Run the full suite with the command above.
+The project regression suite currently contains 91 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and AC/DC sweep orchestration. Run the full suite with the command above.
 
 ## Transient example
 
@@ -267,7 +267,8 @@ MOSFET W/L values in an LTspice `.net` file and compares numeric literals
 against `WMIN`, `WMAX`, `LMIN` and `LMAX` declared by referenced NMOS/PMOS
 model cards. It follows local `.include` / `.inc` / model-file `.lib` paths;
 use `--model` when a library is stored elsewhere or its path cannot be
-resolved. It also reports model-card `VERSION` values, checks explicitly
+resolved. Windows absolute paths to LTspice libraries are mapped to matching
+macOS Bottle or Application Support locations when available. It also reports model-card `VERSION` values, checks explicitly
 provided supply voltages against a supply range stated in a model-file
 comment, and flags missing or zero `PD` / `PS` instance values for review.
 

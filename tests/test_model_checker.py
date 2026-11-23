@@ -1,12 +1,14 @@
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from src.model_checker import (
     _parse_model_cards,
     check_netlist_models,
     main,
     parse_spice_number,
+    _resolve_library,
 )
 
 
@@ -147,6 +149,31 @@ class TestModelChecker(unittest.TestCase):
             "M1 d g s b nMOSFET L=1u W=12u\n.include cmos130.lib\n.end\n"
         )
         self.assertEqual(main([str(net), "--strict"]), 2)
+
+    def test_resolves_windows_path_inside_ltspice_bottle(self):
+        bottle_file = (
+            self.root / "Library" / "Application Support" / "LTspice"
+            / "Bottles" / "ltspice" / "drive_c" / "users" / "crossover"
+            / "AppData" / "Local" / "LTspice" / "lib" / "cmp" / "standard.mos"
+        )
+        bottle_file.parent.mkdir(parents=True)
+        bottle_file.write_text("* bottle model file\n", encoding="utf-8")
+        windows_path = r"C:\users\crossover\AppData\Local\LTspice\lib\cmp\standard.mos"
+        with patch("src.model_checker.Path.home", return_value=self.root):
+            resolved = _resolve_library(windows_path, self.root)
+        self.assertEqual(resolved, bottle_file.resolve())
+
+    def test_resolves_windows_path_to_native_application_support_library(self):
+        native_file = (
+            self.root / "Library" / "Application Support" / "LTspice"
+            / "lib" / "cmp" / "standard.mos"
+        )
+        native_file.parent.mkdir(parents=True)
+        native_file.write_text("* native model file\n", encoding="utf-8")
+        windows_path = r"C:\users\crossover\AppData\Local\LTspice\lib\cmp\standard.mos"
+        with patch("src.model_checker.Path.home", return_value=self.root):
+            resolved = _resolve_library(windows_path, self.root)
+        self.assertEqual(resolved, native_file.resolve())
 
     def test_checker_does_not_modify_netlist_or_model(self):
         net = self.write_netlist(

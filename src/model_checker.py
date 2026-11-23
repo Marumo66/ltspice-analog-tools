@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import math
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import shlex
 import sys
@@ -109,12 +109,41 @@ def _library_references(text: str) -> List[str]:
 
 
 def _resolve_library(reference: str, directory: Path) -> Optional[Path]:
+    # A Windows absolute path can refer to a file inside the LTspice
+    # CrossOver bottle when the same netlist is inspected on macOS.
+    if re.match(r"^[A-Za-z]:[\\/]", reference):
+        windows_parts = PureWindowsPath(reference).parts[1:]
+        support = Path.home() / "Library" / "Application Support" / "LTspice"
+        drive_roots = list((support / "Bottles").glob("*/drive_c"))
+        drive_roots.append(
+            Path(
+                "/Applications/LTspice.app/Contents/SharedSupport/ltspice/"
+                "support/ltspice/drive_c"
+            )
+        )
+        relative = Path(*windows_parts) if windows_parts else Path()
+        for drive_root in drive_roots:
+            path = drive_root / relative
+            if path.is_file():
+                return path.resolve()
+
+        # LTspice also stores standard libraries in native Application Support.
+        folded = [part.casefold() for part in windows_parts]
+        marker = ("appdata", "local", "ltspice")
+        for index in range(len(folded) - len(marker) + 1):
+            if tuple(folded[index:index + len(marker)]) == marker:
+                tail = Path(*windows_parts[index + len(marker):])
+                native_path = support / tail
+                if native_path.is_file():
+                    return native_path.resolve()
+
     candidate = Path(reference.replace("\\", "/")).expanduser()
     possible = [candidate] if candidate.is_absolute() else [directory / candidate]
     for path in possible:
         if path.is_file():
             return path.resolve()
-    # Netlists moved between Windows and macOS may retain an old absolute path.
+
+    # A moved library may still be stored beside the netlist.
     basename = candidate.name.casefold()
     if basename:
         try:
@@ -124,7 +153,6 @@ def _resolve_library(reference: str, directory: Path) -> Optional[Path]:
         except OSError:
             pass
     return None
-
 
 def _load_models(netlist_path: Path, netlist_text: str,
                  explicit_paths: Sequence[str]) -> Tuple[Dict[str, dict], List[Path], List[str]]:
