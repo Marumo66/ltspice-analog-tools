@@ -13,7 +13,7 @@ class TestPhase4ACReference(unittest.TestCase):
     def test_fixture_point_count(self):
         with FIXTURE.open(newline="", encoding="utf-8") as file:
             rows = list(csv.DictReader(file))
-        self.assertEqual(len(rows), 93)
+        self.assertEqual(len(rows), 48)
 
     def test_reference_metrics(self):
         result = calculate_loop_gain_metrics(FIXTURE)
