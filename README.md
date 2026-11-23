@@ -47,7 +47,7 @@ Run the complete test suite from the repository root:
 python3 -m unittest discover -s tests -v
 ```
 
-The project regression suite currently contains 76 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and AC/DC sweep orchestration. Run the full suite with the command above.
+The project regression suite currently contains 89 tests, covering RAW/log parsing, metrics, netlist edits, batch-runner behaviour, and AC/DC sweep orchestration. Run the full suite with the command above.
 
 ## Transient example
 
@@ -259,3 +259,35 @@ references, device geometry and DC bias sources identical between the AC and
 Operating Point runs. The DC supply power is calculated from the separate
 Operating Point RAW file; AC RAW current traces are small-signal phasors and
 are not used as quiescent supply current.
+
+## v1.0 development: MOSFET model checks
+
+The read-only model checker is in `src/model_checker.py`. It reads the
+MOSFET W/L values in an LTspice `.net` file and compares numeric literals
+against `WMIN`, `WMAX`, `LMIN` and `LMAX` declared by referenced NMOS/PMOS
+model cards. It follows local `.include` / `.inc` / model-file `.lib` paths;
+use `--model` when a library is stored elsewhere or its path cannot be
+resolved. It also reports model-card `VERSION` values, checks explicitly
+provided supply voltages against a supply range stated in a model-file
+comment, and flags missing or zero `PD` / `PS` instance values for review.
+
+Example — inspect the course CMOS130 model and a 1.5 V supply:
+
+```bash
+python3 -m src.model_checker two_stage_opamp_CC1P_acSweep.net --supply VDD=1.5
+```
+
+To make an out-of-range W/L value return exit code 2 (for scripting or a
+preflight check), add `--strict`:
+
+```bash
+python3 -m src.model_checker two_stage_opamp_CC1P_acSweep.net --supply VDD=1.5 --strict
+```
+
+The checker treats model-card geometry values as declared bounds; it does not
+claim LTspice will refuse to simulate outside them. Expression-based geometry
+is not evaluated. A supply range found in a comment is reported as the
+model-file's stated recommendation, not as a complete electrical reliability
+or operating-area guarantee. The checker does not edit source netlists or
+model libraries, infer diffusion geometry, or certify compatibility between
+a model-card VERSION and an installed LTspice version.
